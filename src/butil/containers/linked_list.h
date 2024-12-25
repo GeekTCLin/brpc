@@ -66,7 +66,7 @@
 //      iterator to the T* element before you can call erase(iterator).
 //
 //    * Insertion operations with butil::LinkedList<T> never require
-//      heap allocations.
+//      heap allocations. // 节点指针操作，简单理解不进行深拷贝，使用时需要注意资源析构时间
 //
 // Q. How does butil::LinkedList implementation differ from std::list?
 //

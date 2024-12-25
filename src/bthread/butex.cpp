@@ -102,12 +102,18 @@ struct ButexBthreadWaiter : public ButexWaiter {
 
 // pthread_task or main_task allocates this structure on stack and queue it
 // in Butex::waiters.
+// 两层继承
+// 1. butil::LinkNode
+// 2. ButexWaiter
+// 3. ButexPthreadWaiter
 struct ButexPthreadWaiter : public ButexWaiter {
     butil::atomic<int> sig;
 };
 
 typedef butil::LinkedList<ButexWaiter> ButexWaiterList;
 
+// PTHREAD_NOT_SIGNALLED    等待
+// PTHREAD_SIGNALLED        唤醒
 enum ButexPthreadSignal { PTHREAD_NOT_SIGNALLED, PTHREAD_SIGNALLED };
 
 struct BAIDU_CACHELINE_ALIGNMENT Butex {
@@ -122,6 +128,7 @@ struct BAIDU_CACHELINE_ALIGNMENT Butex {
 BAIDU_CASSERT(offsetof(Butex, value) == 0, offsetof_value_must_0);
 BAIDU_CASSERT(sizeof(Butex) == BAIDU_CACHELINE_SIZE, butex_fits_in_one_cacheline);
 
+// 唤醒一个 pthread 等待节点
 static void wakeup_pthread(ButexPthreadWaiter* pw) {
     // release fence makes wait_pthread see changes before wakeup.
     pw->sig.store(PTHREAD_SIGNALLED, butil::memory_order_release);
@@ -134,6 +141,7 @@ static void wakeup_pthread(ButexPthreadWaiter* pw) {
 
 bool erase_from_butex(ButexWaiter*, bool, WaiterState);
 
+// 阻塞一个 pthread 等待节点
 int wait_pthread(ButexPthreadWaiter& pw, const timespec* abstime) {
     timespec* ptimeout = NULL;
     timespec timeout;
@@ -147,6 +155,7 @@ int wait_pthread(ButexPthreadWaiter& pw, const timespec* abstime) {
             ptimeout = &timeout;
         }
         if (timeout_us > MIN_SLEEP_US || abstime == NULL) {
+            // 挂起线程
             rc = futex_wait_private(&pw.sig, PTHREAD_NOT_SIGNALLED, ptimeout);
             if (PTHREAD_NOT_SIGNALLED != pw.sig.load(butil::memory_order_acquire)) {
                 // If `sig' is changed, wakeup_pthread() must be called and `pw'
@@ -177,6 +186,8 @@ int wait_pthread(ButexPthreadWaiter& pw, const timespec* abstime) {
     }
 }
 
+// extern __thread 是 C 或 C++ 编程语言中的一个声明，用于声明一个线程局部存储（Thread Local Storage, TLS）变量。
+// 这种变量对每个线程来说都是独立的，即每个线程都有该变量的一个独立副本，线程之间不会共享这个变量的值
 extern BAIDU_THREAD_LOCAL TaskGroup* tls_task_group;
 
 // Returns 0 when no need to unschedule or successfully unscheduled,
@@ -304,9 +315,11 @@ int butex_wake(void* arg, bool nosignal) {
         front->container.store(NULL, butil::memory_order_relaxed);
     }
     if (front->tid == 0) {
+        // tid == 0 为 Pthread 节点类型
         wakeup_pthread(static_cast<ButexPthreadWaiter*>(front));
         return 1;
     }
+    // 这里为 ButexBthreadWaiter 类型
     ButexBthreadWaiter* bbw = static_cast<ButexBthreadWaiter*>(front);
     unsleep_if_necessary(bbw, get_global_timer_thread());
     TaskGroup* g = get_task_group(bbw->control, bbw->tag);
@@ -329,6 +342,7 @@ int butex_wake_n(void* arg, size_t n, bool nosignal) {
             ButexWaiter* bw = b->waiters.head()->value();
             bw->RemoveFromList();
             bw->container.store(NULL, butil::memory_order_relaxed);
+            // 竟然支持混合
             if (bw->tid) {
                 bthread_waiters.Append(bw);
             } else {
@@ -338,6 +352,7 @@ int butex_wake_n(void* arg, size_t n, bool nosignal) {
     }
 
     int nwakeup = 0;
+    // 1. 处理 pthread 等待节点
     while (!pthread_waiters.empty()) {
         ButexPthreadWaiter* bw = static_cast<ButexPthreadWaiter*>(
             pthread_waiters.head()->value());
@@ -348,6 +363,7 @@ int butex_wake_n(void* arg, size_t n, bool nosignal) {
     if (bthread_waiters.empty()) {
         return nwakeup;
     }
+    // 处理 bthread 等待节点
     butil::FlatMap<bthread_tag_t, TaskGroup*> nwakeups;
     nwakeups.init(FLAGS_task_group_ntags);
     // We will exchange with first waiter in the end.

@@ -252,7 +252,7 @@ friend class TaskControl;
 #endif
     size_t _steal_seed;
     size_t _steal_offset;
-    ContextualStack* _main_stack;
+    ContextualStack* _main_stack;       // 主协程？
     bthread_t _main_tid;
     WorkStealingQueue<bthread_t> _rq;
     RemoteTaskQueue _remote_rq;

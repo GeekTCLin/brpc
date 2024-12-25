@@ -22,6 +22,8 @@
 #ifndef  BTHREAD_MUTEX_H
 #define  BTHREAD_MUTEX_H
 
+#define BTHREAD_USE_FAST_PTHREAD_MUTEX
+
 #include "bthread/types.h"
 #include "butil/scoped_lock.h"
 #include "bvar/utils/lock_timer.h"
@@ -75,6 +77,8 @@ private:
 
 namespace internal {
 #ifdef BTHREAD_USE_FAST_PTHREAD_MUTEX
+// 用户态锁，用于替代pthread_mutex_t
+// 当不用竞争锁时，lock和unlock操作都是通过修改一个用户态的atomic来实现，只有当需要竞争的时候才会陷入内核进行挂起和wake
 class FastPthreadMutex {
 public:
     FastPthreadMutex();
@@ -93,6 +97,7 @@ private:
     mutex_owner_t _owner;
 };
 #else
+// 用pthread_mutex_t实现FastPthreadMutex
 typedef butil::Mutex FastPthreadMutex;
 #endif
 }
@@ -111,6 +116,7 @@ public:
 #endif // BTHREAD_USE_FAST_PTHREAD_MUTEX  HAS_PTHREAD_MUTEX_TIMEDLOCK
 
 private:
+    // 注意是 internal::FastPthreadMutex，使用命名空间internal避免冲突
     internal::FastPthreadMutex _mutex;
 };
 

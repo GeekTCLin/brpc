@@ -35,6 +35,7 @@ namespace bthread {
 #define FUTEX_PRIVATE_FLAG 128
 #endif
 
+//这个 syscall 调用是使当前线程在 addr1 指向的变量值变为 expected 之前等待，或者直到 timeout 指定的时间到达
 inline int futex_wait_private(
     void* addr1, int expected, const timespec* timeout) {
     return syscall(SYS_futex, addr1, (FUTEX_WAIT | FUTEX_PRIVATE_FLAG),

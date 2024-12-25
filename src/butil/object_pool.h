@@ -76,6 +76,7 @@ template <typename T> inline bool local_pool_free_empty() {
 
 // Get an object typed |T|. The object should be cleared before usage.
 // NOTE: T must be default-constructible.
+// 单例
 template <typename T> inline T* get_object() {
     return ObjectPool<T>::singleton()->get_object();
 }

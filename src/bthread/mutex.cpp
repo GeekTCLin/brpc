@@ -991,9 +991,10 @@ BUTIL_FORCE_INLINE int pthread_mutex_unlock_impl(pthread_mutex_t* mutex) {
 #endif
 
 // Implement bthread_mutex_t related functions
+// MutexInternal 占用 4 字节
 struct MutexInternal {
     butil::static_atomic<unsigned char> locked;
-    butil::static_atomic<unsigned char> contended;
+    butil::static_atomic<unsigned char> contended;      // 标记是否有竞争，当释放锁时，如果 contended 为1，则需要进行线程唤醒
     unsigned short padding;
 };
 
@@ -1001,6 +1002,7 @@ const MutexInternal MUTEX_CONTENDED_RAW = {{1},{1},0};
 const MutexInternal MUTEX_LOCKED_RAW = {{1},{0},0};
 // Define as macros rather than constants which can't be put in read-only
 // section and affected by initialization-order fiasco.
+// 取出 MutexInternal 中的 locked 字段
 #define BTHREAD_MUTEX_CONTENDED (*(const unsigned*)&bthread::MUTEX_CONTENDED_RAW)
 #define BTHREAD_MUTEX_LOCKED (*(const unsigned*)&bthread::MUTEX_LOCKED_RAW)
 
@@ -1100,8 +1102,12 @@ int FastPthreadMutex::lock_contended(const struct timespec* abstime) {
     if (NULL != abstime) {
         abstime_us = butil::timespec_to_microseconds(*abstime);
     }
+    // whole 为 MutexInternal == unsigned 同占用 4 字节
     auto whole = (butil::atomic<unsigned>*)&_futex;
+    // 第一个调用whole->exchange(BTHREAD_MUTEX_CONTENDED)将返回BTHREAD_MUTEX_LOCKED
+    // 后续调用的，将返回BTHREAD_MUTEX_CONTENDED
     while (whole->exchange(BTHREAD_MUTEX_CONTENDED) & BTHREAD_MUTEX_LOCKED) {
+        // 如果上锁失败，且没有超时
         timespec* ptimeout = NULL;
         timespec timeout{};
         if (NULL != abstime) {
@@ -1110,6 +1116,7 @@ int FastPthreadMutex::lock_contended(const struct timespec* abstime) {
             ptimeout = &timeout;
         }
         if (NULL == abstime  || abstime_us > MIN_SLEEP_US) {
+            // 进入系统调用，挂起当前线程
             if (futex_wait_private(whole, BTHREAD_MUTEX_CONTENDED, ptimeout) < 0
                 && errno != EWOULDBLOCK && errno != EINTR/*note*/) {
                 // A mutex lock should ignore interruptions in general since
@@ -1121,6 +1128,7 @@ int FastPthreadMutex::lock_contended(const struct timespec* abstime) {
             return errno;
         }
     }
+    // 这里上锁成功
     PTHREAD_MUTEX_SET_OWNER(_owner);
     ADD_TLS_PTHREAD_LOCK_COUNT;
     return 0;
@@ -1128,15 +1136,19 @@ int FastPthreadMutex::lock_contended(const struct timespec* abstime) {
 
 void FastPthreadMutex::lock() {
     if (try_lock()) {
+        // 上锁成功直接返回
         return;
     }
 
+    // 未能上锁
     PTHREAD_MUTEX_CHECK_OWNER(_owner);
     (void)lock_contended(NULL);
 }
 
 bool FastPthreadMutex::try_lock() {
     auto split = (bthread::MutexInternal*)&_futex;
+    // 目前看下来 返回0 代表上锁成功
+    // 取 !0 标记为 上锁成功，lock = true
     bool lock = !split->locked.exchange(1, butil::memory_order_acquire);
     if (lock) {
         PTHREAD_MUTEX_SET_OWNER(_owner);
