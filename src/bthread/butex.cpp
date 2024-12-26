@@ -670,6 +670,13 @@ static int butex_wait_from_pthread(TaskGroup* g, Butex* b, int expected_value,
 }
 
 int butex_wait(void* arg, int expected_value, const timespec* abstime, bool prepend) {
+    /**
+     * Expend:
+     * ({
+            const decltype( ((Butex *)0)->value ) *__mptr = (static_cast<butil::atomic<int>*>(arg)); 
+            (Butex *)( (char *)__mptr - __builtin_offsetof (Butex, value) );
+        })
+     */
     Butex* b = container_of(static_cast<butil::atomic<int>*>(arg), Butex, value);
     if (b->value.load(butil::memory_order_relaxed) != expected_value) {
         errno = EWOULDBLOCK;
