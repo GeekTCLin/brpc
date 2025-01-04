@@ -592,6 +592,32 @@ private:
 #endif
 };
 
+/**
+ * ResourcePool<T> layout
+ * thread1------------------_local_pool
+ * thread2------------------_local_pool
+ * thread3------------------_local_pool
+ * thread-------------------_local_pool
+ * thread-------------------_local_pool--------------_cur_block
+ * thread-------------------_local_pool--------------_cur_block_index
+ * thread-------------------_local_pool--------------_cur_free
+ * _nlocal
+ * _ngroup
+ * _block_group_mutex
+ * _change_thread_mutex
+ * _block_groups[RP_MAX_BLOCK_NGROUP]
+ * _free_chunks
+ * _free_chunks_mutex
+ * 
+ * 获取一个对象内存资源
+ * 1. _local_pool._cur_free 无锁
+ * 2. 访问_free_chunks 获取一个 DynamicChunk 替换 _cur_free，操作上锁
+ * 3. 访问_cur_block （不申请空间，无锁）
+ * 4. 访问_cur_block 申请空间（会接着访问 _block_groups，上锁）
+ * 
+ * 优先还是使用free_chunk的空间，而不是直接访问_cur_block 来申请空间
+ */
+
 // Declare template static variables:
 
 template <typename T>
