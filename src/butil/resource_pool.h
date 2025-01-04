@@ -93,17 +93,20 @@ namespace butil {
 // Get an object typed |T| and write its identifier into |id|.
 // The object should be cleared before usage.
 // NOTE: T must be default-constructible.
+// 提供默认构造的 T 类型对象创建，id 作为返回的记录标识
 template <typename T> inline T* get_resource(ResourceId<T>* id) {
     return ResourcePool<T>::singleton()->get_resource(id);
 }
 
 // Get an object whose constructor is T(arg1)
+// 对含一个参数的 构造 T 类型
 template <typename T, typename A1>
 inline T* get_resource(ResourceId<T>* id, const A1& arg1) {
     return ResourcePool<T>::singleton()->get_resource(id, arg1);
 }
 
 // Get an object whose constructor is T(arg1, arg2)
+// 对含两个参数的 构造 T类型
 template <typename T, typename A1, typename A2>
 inline T* get_resource(ResourceId<T>* id, const A1& arg1, const A2& arg2) {
     return ResourcePool<T>::singleton()->get_resource(id, arg1, arg2);
@@ -114,6 +117,7 @@ inline T* get_resource(ResourceId<T>* id, const A1& arg1, const A2& arg2) {
 // free/delete, validity of the id is not checked, user shall not return a
 // not-yet-allocated or already-returned id otherwise behavior is undefined.
 // Returns 0 when successful, -1 otherwise.
+// 返回 id 绑定的资源
 template <typename T> inline int return_resource(ResourceId<T> id) {
     return ResourcePool<T>::singleton()->return_resource(id);
 }
@@ -125,6 +129,7 @@ template <typename T> inline int return_resource(ResourceId<T> id) {
 // NOTE: Calling this function before any other get_resource<T>/
 //       return_resource<T>/address<T>, even if the identifier is valid,
 //       may race with another thread calling clear_resources<T>.
+// 获取 id绑定的 对象
 template <typename T> inline T* address_resource(ResourceId<T> id) {
     return ResourcePool<T>::address_resource(id);
 }

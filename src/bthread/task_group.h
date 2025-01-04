@@ -232,7 +232,7 @@ friend class TaskControl;
 
     void set_pl(ParkingLot* pl) { _pl = pl; }
 
-    TaskMeta* _cur_meta;
+    TaskMeta* _cur_meta;        // 主协程？
     
     // the control that this group belongs to
     TaskControl* _control;

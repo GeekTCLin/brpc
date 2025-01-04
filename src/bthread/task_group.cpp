@@ -151,6 +151,7 @@ static double get_cumulated_cputime_from_this(void* arg) {
     return static_cast<TaskGroup*>(arg)->cumulated_cputime_ns() / 1000000000.0;
 }
 
+// TaskGroup 主循环
 void TaskGroup::run_main_task() {
     bvar::PassiveStatus<double> cumulated_cputime(
         get_cumulated_cputime_from_this, this);
@@ -233,6 +234,7 @@ int TaskGroup::init(size_t runqueue_capacity) {
         return -1;
     }
     butil::ResourceId<TaskMeta> slot;
+    // 创建主协程？
     TaskMeta* m = butil::get_resource<TaskMeta>(&slot);
     if (NULL == m) {
         LOG(FATAL) << "Fail to get TaskMeta";

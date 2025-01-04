@@ -46,12 +46,15 @@ namespace butil {
     
 template <typename T>
 struct ResourceId {
+    // 仅保存一个 64位无符号整数
+    // 保存第几个item
     uint64_t value;
 
     operator uint64_t() const {
         return value;
     }
 
+    // 构建 T2类型的 ResourceId，id 相同？？ 用于指针强转？？
     template <typename T2>
     ResourceId<T2> cast() const {
         ResourceId<T2> id = { value };
@@ -59,9 +62,10 @@ struct ResourceId {
     }
 };
 
+// 空闲资源链表
 template <typename T, size_t NITEM> 
 struct ResourcePoolFreeChunk {
-    size_t nfree;
+    size_t nfree;           // 下标
     ResourceId<T> ids[NITEM];
 };
 // for gcc 3.4.5
@@ -91,9 +95,12 @@ static const size_t RP_INITIAL_FREE_LIST_SIZE = 1024;
 
 template <typename T>
 class ResourcePoolBlockItemNum {
+    // N1 为 64 * 1024 / sizeof(T)
     static const size_t N1 = ResourcePoolBlockMaxSize<T>::value / sizeof(T);
     static const size_t N2 = (N1 < 1 ? 1 : N1);
 public:
+    // ResourcePoolBlockMaxItem<T>::value 256
+    // 先按256 来
     static const size_t value = (N2 > ResourcePoolBlockMaxItem<T>::value ?
                                  ResourcePoolBlockMaxItem<T>::value : N2);
 };
@@ -114,9 +121,10 @@ public:
     // When a thread needs memory, it allocates a Block. To improve locality,
     // items in the Block are only used by the thread.
     // To support cache-aligned objects, align Block.items by cacheline.
+    // 一个 Block 包含多个 Item
     struct BAIDU_CACHELINE_ALIGNMENT Block {
-        BlockItem items[BLOCK_NITEM];
-        size_t nitem;
+        BlockItem items[BLOCK_NITEM];   // BLOCK_NITEM 最多256，对应一个 block 最多 256个 T Item
+        size_t nitem;                   // 当前空闲的下标
 
         Block() : nitem(0) {}
     };
@@ -124,9 +132,10 @@ public:
     // A Resource addresses at most RP_MAX_BLOCK_NGROUP BlockGroups,
     // each BlockGroup addresses at most RP_GROUP_NBLOCK blocks. So a
     // resource addresses at most RP_MAX_BLOCK_NGROUP * RP_GROUP_NBLOCK Blocks.
+    // 一个 BlockGroup 包含 多个 Block
     struct BlockGroup {
-        butil::atomic<size_t> nblock;
-        butil::atomic<Block*> blocks[RP_GROUP_NBLOCK];
+        butil::atomic<size_t> nblock;                       // BlackGroup中空闲的下标
+        butil::atomic<Block*> blocks[RP_GROUP_NBLOCK];      // 65536 个 block，对应存储 65536 * 256 个 T Item？
 
         BlockGroup() : nblock(0) {
             // We fetch_add nblock in add_block() before setting the entry,
@@ -138,6 +147,7 @@ public:
 
 
     // Each thread has an instance of this class.
+    // 一个线程对应一个 LocalPool
     class BAIDU_CACHELINE_ALIGNMENT LocalPool {
     public:
         explicit LocalPool(ResourcePool* pool)
@@ -164,6 +174,13 @@ public:
         // which may include parenthesis because when T is POD, "new T()"
         // and "new T" are different: former one sets all fields to 0 which
         // we don't want.
+/**
+ * 从 RESOURCE_POOL 获取一块存储空间
+ * 1. 如果_cur_free nfree > 0 空闲链表有存储空间，返回一个空间
+ * 2. 如果_free_chunks 存在 DynamicFreeChurnk，返回一个chunk给 _cur_free
+ * 3. 如果存在 _cur_block 且 nitem item数量 小于 BLOCK_ITEM 上限，添加一个 ITEM 至该Block 并返回
+ * 4. 添加一个新 block
+ */
 #define BAIDU_RESOURCE_POOL_GET(...)                                        \
         /* Fetch local free id */                                           \
         if (_cur_free.nfree) {                                              \
@@ -226,7 +243,8 @@ public:
         }
 
 #undef BAIDU_RESOURCE_POOL_GET
-
+        // 返回资源，如果 _cur_free nfree 空闲个数小于 上限，加入 _cur_free
+        // 反之 将_cur_free 加入  _free_chunks，再将 id加入 _cur_free
         inline int return_resource(ResourceId<T> id) {
             // Return to local free list
             if (_cur_free.nfree < ResourcePool::free_chunk_nitem()) {
@@ -246,13 +264,16 @@ public:
         }
 
     private:
-        ResourcePool* _pool;
+        // LocalPool 成员
+        ResourcePool* _pool;        
         Block* _cur_block;
-        size_t _cur_block_index;
-        FreeChunk _cur_free;
+        size_t _cur_block_index;    // 当前block 下标
+        FreeChunk _cur_free;        // 空闲空间链表
     };
+    // LocalPool End
 
     static inline T* unsafe_address_resource(ResourceId<T> id) {
+        // 计算block 下标
         const size_t block_index = id.value / BLOCK_NITEM;
         return (T*)(_block_groups[(block_index >> RP_GROUP_NBLOCK_NBIT)]
                     .load(butil::memory_order_consume)
@@ -368,6 +389,7 @@ public:
             return p;
         }
         pthread_mutex_lock(&_singleton_mutex);
+        // 可能锁释放后执行，_singleton 可能已创建
         p = _singleton.load(butil::memory_order_consume);
         if (!p) {
             p = new ResourcePool();
@@ -402,6 +424,7 @@ private:
                     _block_groups[ngroup - 1].load(butil::memory_order_consume);
                 const size_t block_index =
                     g->nblock.fetch_add(1, butil::memory_order_relaxed);
+                // 如果最后一个 group 的 block 数量 小于 RP_GROUP_NBLOCK，可以添加
                 if (block_index < RP_GROUP_NBLOCK) {
                     g->blocks[block_index].store(
                         new_block, butil::memory_order_release);
@@ -440,6 +463,7 @@ private:
         return bg != NULL;
     }
 
+    // 获取或创建当前线程的 local_pool
     inline LocalPool* get_or_new_local_pool() {
         LocalPool* lp = _local_pool;
         if (lp != NULL) {
@@ -451,6 +475,7 @@ private:
         }
         BAIDU_SCOPED_LOCK(_change_thread_mutex); //avoid race with clear()
         _local_pool = lp;
+        // 看上去是注册线程退出的回调函数
         butil::thread_atexit(LocalPool::delete_local_pool, lp);
         _nlocal.fetch_add(1, butil::memory_order_relaxed);
         return lp;
@@ -510,6 +535,7 @@ private:
     }
 
 private:
+    // 从 _free_chunks 取出一个 DynamicFreeChunk 地址
     bool pop_free_chunk(FreeChunk& c) {
         // Critical for the case that most return_object are called in
         // different threads of get_object.
@@ -525,12 +551,17 @@ private:
         _free_chunks.pop_back();
         pthread_mutex_unlock(&_free_chunks_mutex);
         c.nfree = p->nfree;
+        // DynamicFreeChunk* p 的定义 nitem 为0，所以不能直接赋值给FreeChunk，而是要拷贝id
+        // 这里只拷贝id，相当于拷贝指针地址
         memcpy(c.ids, p->ids, sizeof(*p->ids) * p->nfree);
         free(p);
         return true;
     }
 
+    // 将一个 FreeChunk 转成 DynamicFreeChunk 加入 _free_chunks
     bool push_free_chunk(const FreeChunk& c) {
+        // 申请 DynamicFreeChunk 的空间，同时包含 nfree 个 *c.ids
+        // *c.ids （c.ids 数组名）应该是取出单个元素
         DynamicFreeChunk* p = (DynamicFreeChunk*)malloc(
             offsetof(DynamicFreeChunk, ids) + sizeof(*c.ids) * c.nfree);
         if (!p) {
@@ -544,17 +575,17 @@ private:
         return true;
     }
     
-    static butil::static_atomic<ResourcePool*> _singleton;
+    static butil::static_atomic<ResourcePool*> _singleton;  // 单例
     static pthread_mutex_t _singleton_mutex;
-    static BAIDU_THREAD_LOCAL LocalPool* _local_pool;
-    static butil::static_atomic<long> _nlocal;
-    static butil::static_atomic<size_t> _ngroup;
+    static BAIDU_THREAD_LOCAL LocalPool* _local_pool;       // 每个线程对应一个 LocalPool
+    static butil::static_atomic<long> _nlocal;              // LocalPool 数量
+    static butil::static_atomic<size_t> _ngroup;            // BlockGroup 数量
     static pthread_mutex_t _block_group_mutex;
     static pthread_mutex_t _change_thread_mutex;
-    static butil::static_atomic<BlockGroup*> _block_groups[RP_MAX_BLOCK_NGROUP];
+    static butil::static_atomic<BlockGroup*> _block_groups[RP_MAX_BLOCK_NGROUP];    // block_group指针数组
 
     std::vector<DynamicFreeChunk*> _free_chunks;
-    pthread_mutex_t _free_chunks_mutex;
+    pthread_mutex_t _free_chunks_mutex;                     // 操作_free_chunks 的锁
 
 #ifdef BUTIL_RESOURCE_POOL_NEED_FREE_ITEM_NUM
     static butil::static_atomic<size_t> _global_nfree;
@@ -566,10 +597,14 @@ private:
 template <typename T>
 const size_t ResourcePool<T>::FREE_CHUNK_NITEM;
 
+// 每个线程 LocalPool 相互独立
+// 类外定义初始为NULL
 template <typename T>
 BAIDU_THREAD_LOCAL typename ResourcePool<T>::LocalPool*
 ResourcePool<T>::_local_pool = NULL;
 
+// 每一个 类型 T 对应都有一个 ResourcePool static 变量
+// 这里都是类外初始化  ResourcePool<T>:: 里面的static 成员
 template <typename T>
 butil::static_atomic<ResourcePool<T>*> ResourcePool<T>::_singleton =
     BUTIL_STATIC_ATOMIC_INIT(NULL);

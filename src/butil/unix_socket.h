@@ -28,6 +28,7 @@ namespace butil {
 // If remove_previous_file is true or absent, remove previous file before
 // creating the socket.
 // Returns the file descriptor on success, -1 otherwise and errno is set.
+// 提供AF_LOCAL unix socket
 int unix_socket_listen(const char* sockname, bool remove_previous_file);
 int unix_socket_listen(const char* sockname);
 

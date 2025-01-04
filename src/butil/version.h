@@ -15,6 +15,7 @@ namespace butil {
 
 // Version represents a dotted version number, like "1.2.3.4", supporting
 // parsing and comparison.
+// 版本类，提供如 1.2.3.4 版本号的封装，每个数值 使用 uint16_t 进行存储，支持版本比较以及 .* 版本匹配
 class BUTIL_EXPORT Version {
  public:
   // The only thing you can legally do to a default constructed
