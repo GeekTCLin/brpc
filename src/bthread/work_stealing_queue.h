@@ -76,6 +76,8 @@ public:
             return false;
         }
         _buffer[b & (_capacity - 1)] = x;
+        // memory_order_release 保证 _buffer[b & (_capacity - 1)] = x; 不会在 后面执行
+        // 保证其他线程 获取 b 不会先取到 b+1 但 buffer[b & (_capacity - 1)] 未存储 x
         _bottom.store(b + 1, butil::memory_order_release);
         return true;
     }
@@ -97,13 +99,17 @@ public:
         butil::atomic_thread_fence(butil::memory_order_seq_cst);
         t = _top.load(butil::memory_order_relaxed);
         if (t > newb) {
+            // steal() 太快，导致 newb位置的Item被steal，所以pop 失败？
             _bottom.store(b, butil::memory_order_relaxed);
             return false;
         }
         *val = _buffer[newb & (_capacity - 1)];
         if (t != newb) {
+            // steal() 没那么快，成功了 哈哈哈
             return true;
         }
+        // t == newb 只有最后一个Item，和 steal 竞争
+        // 如果 CAS _top 从 t 到 t+1 成功，则pop成功，反之被 steal了
         // Single last element, compete with steal()
         const bool popped = _top.compare_exchange_strong(
             t, t + 1, butil::memory_order_seq_cst, butil::memory_order_relaxed);
@@ -114,6 +120,7 @@ public:
     // Steal one item from the queue.
     // Returns true on stolen.
     // May run in parallel with push() pop() or another steal().
+    // steal() 和 push() 或者 pop() 可并行
     bool steal(T* val) {
         size_t t = _top.load(butil::memory_order_acquire);
         size_t b = _bottom.load(butil::memory_order_acquire);
@@ -128,6 +135,7 @@ public:
                 return false;
             }
             *val = _buffer[t & (_capacity - 1)];
+            // 若 CAS 检测 _top 从 t 变化 到 t+1 失败，重复尝试 steal
         } while (!_top.compare_exchange_strong(t, t + 1,
                                                butil::memory_order_seq_cst,
                                                butil::memory_order_relaxed));
@@ -146,10 +154,11 @@ private:
     // Copying a concurrent structure makes no sense.
     DISALLOW_COPY_AND_ASSIGN(WorkStealingQueue);
 
-    butil::atomic<size_t> _bottom;
-    size_t _capacity;
-    T* _buffer;
-    BAIDU_CACHELINE_ALIGNMENT butil::atomic<size_t> _top;
+    butil::atomic<size_t> _bottom;          // 末尾Item 下标 + 1
+    size_t _capacity;                       // 容量
+    T* _buffer;                             // Item数组
+    // BAIDU_CACHELINE_ALIGNMENT __attribute__((aligned(64)))  应该是用于防止伪共享吧
+    BAIDU_CACHELINE_ALIGNMENT butil::atomic<size_t> _top;       // 首个Item 下标
 };
 
 }  // namespace bthread
