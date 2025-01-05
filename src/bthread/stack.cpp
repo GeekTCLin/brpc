@@ -53,6 +53,10 @@ static int64_t get_stack_count(void*) {
 static bvar::PassiveStatus<int64_t> bvar_stack_count(
     "bthread_stack_count", get_stack_count, NULL);
 
+// 通过 malloc 或者 mmap 创建一个任务栈
+/**
+ * @param guardsize_in 保护区域大小，小于0或者负数则不分配
+ */
 int allocate_stack_storage(StackStorage* s, int stacksize_in, int guardsize_in) {
     const static int PAGESIZE = getpagesize();
     const int PAGESIZE_M1 = PAGESIZE - 1;
@@ -60,6 +64,9 @@ int allocate_stack_storage(StackStorage* s, int stacksize_in, int guardsize_in) 
     const int MIN_GUARDSIZE = PAGESIZE;
 
     // Align stacksize
+    // stacksize 页对齐
+    // 加一个 PAGESIZE_M1 保证 stacksize 大于 stacksize_in
+    // & ~PAGESIZE_M1 移除低位进行对齐
     const int stacksize =
         (std::max(stacksize_in, MIN_STACKSIZE) + PAGESIZE_M1) &
         ~PAGESIZE_M1;
@@ -89,6 +96,7 @@ int allocate_stack_storage(StackStorage* s, int stacksize_in, int guardsize_in) 
             ~PAGESIZE_M1;
 
         const int memsize = stacksize + guardsize;
+        // 通过mmap 分配空间，才可以用mprotect 限制保护区不可访问
         void* const mem = mmap(NULL, memsize, (PROT_READ | PROT_WRITE),
                                (MAP_PRIVATE | MAP_ANONYMOUS), -1, 0);
 
@@ -103,10 +111,14 @@ int allocate_stack_storage(StackStorage* s, int stacksize_in, int guardsize_in) 
 
         void* aligned_mem = (void*)(((intptr_t)mem + PAGESIZE_M1) & ~PAGESIZE_M1);
         if (aligned_mem != mem) {
+            // 理论不会发生
             LOG_ONCE(ERROR) << "addr=" << mem << " returned by mmap is not "
                 "aligned by pagesize=" << PAGESIZE;
         }
         const int offset = (char*)aligned_mem - (char*)mem;
+        // mprotect 将保护区域设置为不可访问
+        // 假设非异常情况 从 aligned_mem 到 aligned_mem + guardsize 的空间设置为保护区禁止访问
+        // guardsize <= offset 说明保护区空间不足，错误情况 返回-1
         if (guardsize <= offset ||
             mprotect(aligned_mem, guardsize - offset, PROT_NONE) != 0) {
             munmap(mem, memsize);
@@ -130,6 +142,7 @@ int allocate_stack_storage(StackStorage* s, int stacksize_in, int guardsize_in) 
     }
 }
 
+// 释放任务栈空间
 void deallocate_stack_storage(StackStorage* s) {
     if (RunningOnValgrind()) {
         VALGRIND_STACK_DEREGISTER(s->valgrind_stack_id);
@@ -142,6 +155,7 @@ void deallocate_stack_storage(StackStorage* s) {
     if (s->guardsize <= 0) {
         free((char*)s->bottom - memsize);
     } else {
+        // 存在 guard page，使用mmap分配的空间，使用 mumap 进行释放
         munmap((char*)s->bottom - memsize, memsize);
     }
 }

@@ -31,12 +31,12 @@
 namespace bthread {
 
 struct StackStorage {
-     int stacksize;
-     int guardsize;
+     int stacksize;                 // 栈大小
+     int guardsize;                 // 保护区大小
     // Assume stack grows upwards.
     // http://www.boost.org/doc/libs/1_55_0/libs/context/doc/html/context/stack.html
-    void* bottom;
-    unsigned valgrind_stack_id;
+    void* bottom;                   // 栈底（高地址）
+    unsigned valgrind_stack_id;     // 和 valgrind 相关
 
     // Clears all members.
     void zeroize() {

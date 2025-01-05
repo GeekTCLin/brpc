@@ -19,6 +19,9 @@
 
 // Date: Sun Sep  7 22:37:39 CST 2014
 
+// stack_inl.h 主要提供函数栈的内存申请 有 mmap 以及 malloc 两种
+// 以及 context 上下文创建（MainStack 没有 上下文）
+// 和 Stack的资源回收，MainStack 直接delete，其余有大小（有context和storage的）使用ObjectPool维护
 #ifndef BTHREAD_ALLOCATE_STACK_INL_H
 #define BTHREAD_ALLOCATE_STACK_INL_H
 
@@ -48,6 +51,7 @@ struct LargeStackClass {
 
 template <typename StackClass> struct StackFactory {
     struct Wrapper : public ContextualStack {
+        // void (*entry)(intptr_t) 函数指针，方法栈执行的 函数
         explicit Wrapper(void (*entry)(intptr_t)) {
             if (allocate_stack_storage(&storage, *StackClass::stack_size_flag,
                                        FLAGS_guard_page_size) != 0) {
@@ -55,6 +59,7 @@ template <typename StackClass> struct StackFactory {
                 context = NULL;
                 return;
             }
+            // 在分配好的栈空间初始化协程上下文
             context = bthread_make_fcontext(storage.bottom, storage.stacksize, entry);
             stacktype = (StackType)StackClass::stacktype;
         }
@@ -67,6 +72,7 @@ template <typename StackClass> struct StackFactory {
         }
     };
     
+    // Wrapper 由 ObjectPool 进行资源管理
     static ContextualStack* get_stack(void (*entry)(intptr_t)) {
         return butil::get_object<Wrapper>(entry);
     }
@@ -76,19 +82,21 @@ template <typename StackClass> struct StackFactory {
     }
 };
 
+// 主栈偏特化
 template <> struct StackFactory<MainStackClass> {
     static ContextualStack* get_stack(void (*)(intptr_t)) {
         ContextualStack* s = new (std::nothrow) ContextualStack;
         if (NULL == s) {
             return NULL;
         }
-        s->context = NULL;
+        s->context = NULL;      // 主栈没有设置上下文？
         s->stacktype = STACK_TYPE_MAIN;
         s->storage.zeroize();
         return s;
     }
     
     static void return_stack(ContextualStack* s) {
+        // 主栈对象 内存资源不受ObjectPool 维护，直接delete释放空间
         delete s;
     }
 };
@@ -99,7 +107,7 @@ inline ContextualStack* get_stack(StackType type, void (*entry)(intptr_t)) {
         return NULL;
     case STACK_TYPE_SMALL:
         return StackFactory<SmallStackClass>::get_stack(entry);
-    case STACK_TYPE_NORMAL:
+    case STACK_TYPE_NORMAL: // 默认使用normal
         return StackFactory<NormalStackClass>::get_stack(entry);
     case STACK_TYPE_LARGE:
         return StackFactory<LargeStackClass>::get_stack(entry);
@@ -128,6 +136,7 @@ inline void return_stack(ContextualStack* s) {
     }
 }
 
+// 切换函数栈
 inline void jump_stack(ContextualStack* from, ContextualStack* to) {
     bthread_jump_fcontext(&from->context, to->context, 0/*not skip remained*/);
 }

@@ -386,6 +386,7 @@ void double_lock(std::unique_lock<Mutex1> &lck1, std::unique_lock<Mutex2> &lck2)
     volatile void* const ptr1 = lck1.mutex();
     volatile void* const ptr2 = lck2.mutex();
     DCHECK_NE(ptr1, ptr2);
+    // 通过指针地址比较 来约束两个锁的上锁顺序从而避免 死锁情况
     if (ptr1 < ptr2) {
         lck1.lock();
         lck2.lock();
