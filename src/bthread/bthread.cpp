@@ -172,12 +172,14 @@ start_from_non_worker(bthread_t* __restrict tid,
                       const bthread_attr_t* __restrict attr,
                       void* (*fn)(void*),
                       void* __restrict arg) {
+    // 获取TaskControl 全局单例
     TaskControl* c = get_or_new_task_control();
     if (NULL == c) {
         return ENOMEM;
     }
     auto tag = BTHREAD_TAG_DEFAULT;
     if (attr != NULL && attr->tag != BTHREAD_TAG_INVALID) {
+        // 若 attr 指定了 tag
         tag = attr->tag;
     }
     if (attr != NULL && (attr->flags & BTHREAD_NOSIGNAL)) {

@@ -113,6 +113,7 @@ public:
             new ((T*)_items + _mod(_start + _count, _cap)) T(item);
             ++_count;
         } else {
+            // _start 位置放item，_start 再+1，更改起点，原_start 作为结尾
             ((T*)_items)[_start] = item;
             _start = _mod(_start + 1, _cap);
         }
@@ -295,11 +296,11 @@ private:
         return off;
     }
     
-    uint32_t _count;
-    uint32_t _cap;
-    uint32_t _start;
+    uint32_t _count;                // ring buffer 存储item 数量
+    uint32_t _cap;                  // ring buffer 容量
+    uint32_t _start;                // ring buffer 开始下标
     StorageOwnership _ownership;
-    void* _items;
+    void* _items;                   // ring buffer item 数组
 };
 
 }  // namespace butil

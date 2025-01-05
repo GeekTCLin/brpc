@@ -70,6 +70,7 @@ struct WorkerThreadArgs {
     bthread_tag_t tag;
 };
 
+// worker 线程启动
 void* TaskControl::worker_thread(void* arg) {
     run_worker_startfn();
 #ifdef BAIDU_INTERNAL
@@ -82,6 +83,7 @@ void* TaskControl::worker_thread(void* arg) {
     delete dummy;
     run_tagged_worker_startfn(tag);
 
+    // 创建TaskGroup
     TaskGroup* g = c->create_group(tag);
     TaskStatistics stat;
     if (NULL == g) {
@@ -93,11 +95,14 @@ void* TaskControl::worker_thread(void* arg) {
     butil::PlatformThread::SetName(worker_thread_name.c_str());
     BT_VLOG << "Created worker=" << pthread_self() << " bthread=" << g->main_tid()
             << " tag=" << g->tag();
+    // tls_task_group赋值
     tls_task_group = g;
     c->_nworkers << 1;
     c->tag_nworkers(g->tag()) << 1;
+    // main loop
     g->run_main_task();
 
+    // exit
     stat = g->main_stat();
     BT_VLOG << "Destroying worker=" << pthread_self() << " bthread="
             << g->main_tid() << " idle=" << stat.cputime_ns / 1000000.0
@@ -180,6 +185,9 @@ TaskControl::TaskControl()
     , _pl(FLAGS_task_group_ntags)
 {}
 
+/**
+ * @param concurrency 并发worker线程数
+ */
 int TaskControl::init(int concurrency) {
     if (_concurrency != 0) {
         LOG(ERROR) << "Already initialized";
@@ -209,6 +217,7 @@ int TaskControl::init(int concurrency) {
         return -1;
     }
     
+    // 创建worker线程
     _workers.resize(_concurrency);   
     for (int i = 0; i < _concurrency; ++i) {
         auto arg = new WorkerThreadArgs(this, i % FLAGS_task_group_ntags);
