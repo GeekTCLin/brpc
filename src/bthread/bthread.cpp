@@ -167,6 +167,7 @@ static bool validate_bthread_concurrency_by_tag(const char*, int32_t val) {
 
 __thread TaskGroup* tls_task_group_nosignal = NULL;
 
+// 加入 remote_rq
 BUTIL_FORCE_INLINE int
 start_from_non_worker(bthread_t* __restrict tid,
                       const bthread_attr_t* __restrict attr,
@@ -251,11 +252,16 @@ int bthread_start_background(bthread_t* __restrict tid,
                              void* __restrict arg) {
     bthread::TaskGroup* g = bthread::tls_task_group;
     if (g) {
+        // 如果属于 worker线程 （g 存在，worker线程调用该函数）
+        // 并且 attr.tag == g.tag tag 相同 （该任务由这个worker线程创建，并由该worker线程加入调用）
+        // 或者说 attr 为null 或者 attr 中的 tag 为 INVALID
         // if attribute is null use thread local task group
         if (bthread::can_run_thread_local(attr)) {
+            // 加入 rq
             return g->start_background<false>(tid, attr, fn, arg);
         }
     }
+    // 不存在 tls_task_group 非worker 线程 或者 创建线程与当前执行线程不一致
     return bthread::start_from_non_worker(tid, attr, fn, arg);
 }
 

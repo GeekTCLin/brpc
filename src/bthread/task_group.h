@@ -218,13 +218,16 @@ friend class TaskControl;
     // loop calling this function should end.
     bool wait_task(bthread_t* tid);
 
+    // 获取一个任务
     bool steal_task(bthread_t* tid) {
+        // 先取 本地 _remote_rq
         if (_remote_rq.pop(tid)) {
             return true;
         }
 #ifndef BTHREAD_DONT_SAVE_PARKING_STATE
         _last_pl_state = _pl->get_state();
-#endif
+#endif  
+        // 通过 control 从其他 TaskGroup 中获取任务
         return _control->steal_task(tid, &_steal_seed, _steal_offset);
     }
 
@@ -232,7 +235,7 @@ friend class TaskControl;
 
     void set_pl(ParkingLot* pl) { _pl = pl; }
 
-    TaskMeta* _cur_meta;        // 主协程？
+    TaskMeta* _cur_meta;        // 当前正在执行的bthread的TaskMeta对象的地址
     
     // the control that this group belongs to
     TaskControl* _control;
@@ -254,8 +257,8 @@ friend class TaskControl;
     size_t _steal_offset;
     ContextualStack* _main_stack;
     bthread_t _main_tid;
-    WorkStealingQueue<bthread_t> _rq;
-    RemoteTaskQueue _remote_rq;
+    WorkStealingQueue<bthread_t> _rq;   // 按序执行的bthread队列
+    RemoteTaskQueue _remote_rq;         // pthread下创建bthread会放入的队列
     int _remote_num_nosignal;
     int _remote_nsignaled;
 
@@ -263,6 +266,15 @@ friend class TaskControl;
     // tag of this taskgroup
     bthread_tag_t _tag;
 };
+
+/**
+ * 
+ * 能否置换 先 steal _rq 再 steal _remote_rq
+ * TaskGroup 中的 _rq 为什么不被消费？
+    对于问题 1：从设计上考虑，Work Stealing 调度的主要目的是让 bthread 被更快调度到更多核心，所以设计成优先 steal 其他 Worker push 到那个 Worker 所属的 _rq 队列中的 bthread，再去消费 non-Worker 线程的 bthread 任务。从我的理解来说，这套设计的思想是：每个 TaskGroup 先优先解决分内的问题（local _remote_rq）；再优先支援其他 TaskGroup 的重要公共问题（other&#39;s _rq），因为设计上需要被更快处理；最后支援其他 TaskGroup 的私有问题（other&#39;s _remote_rq），因为这个队列中都是优先级较低的来自 non-Worker 线程的任务。
+
+    对于问题 2：首先是避免了非必要的竞争，不难看出如果自己也获取本 TaskGroup 中 _rq 任务的话可能会与其他前来 steal 的 TaskGroup 形成冲突。同时，local _rq 的消费也并不是只能靠其他 TaskGroup 的steal_task() 才能完成，在 task_runner() 的 ending_sched() 中将消费 local _rq。
+ */
 
 }  // namespace bthread
 

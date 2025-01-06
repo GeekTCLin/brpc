@@ -467,8 +467,10 @@ int TaskGroup::start_background(bthread_t* __restrict th,
     _control->_nbthreads << 1;
     _control->tag_nbthreads(tag()) << 1;
     if (REMOTE) {
+        // 加入 remote_rq
         ready_to_run_remote(m->tid, (using_attr.flags & BTHREAD_NOSIGNAL));
     } else {
+        // 加入 _rq
         ready_to_run(m->tid, (using_attr.flags & BTHREAD_NOSIGNAL));
     }
     return 0;
@@ -692,9 +694,11 @@ void TaskGroup::flush_nosignal_tasks() {
     }
 }
 
+// 加入 remote_rq
 void TaskGroup::ready_to_run_remote(bthread_t tid, bool nosignal) {
     _remote_rq._mutex.lock();
     while (!_remote_rq.push_locked(tid)) {
+        // _remote_rq 满了，释放锁，执行 signal，sleep 1ms，再次获取锁尝试加入 _remote_rq
         flush_nosignal_tasks_remote_locked(_remote_rq._mutex);
         LOG_EVERY_SECOND(ERROR) << "_remote_rq is full, capacity="
                                 << _remote_rq.capacity();

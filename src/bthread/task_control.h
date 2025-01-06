@@ -122,8 +122,8 @@ private:
 
     butil::atomic<bool> _init;  // if not init, bvar will case coredump
     bool _stop;
-    butil::atomic<int> _concurrency;
-    std::vector<pthread_t> _workers;
+    butil::atomic<int> _concurrency;        // worker 线程数
+    std::vector<pthread_t> _workers;        // worker 线程
     butil::atomic<int> _next_worker_id;
 
     bvar::Adder<int64_t> _nworkers;

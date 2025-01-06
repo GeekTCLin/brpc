@@ -120,7 +120,7 @@ public:
     // Steal one item from the queue.
     // Returns true on stolen.
     // May run in parallel with push() pop() or another steal().
-    // steal() 和 push() 或者 pop() 可并行
+    // steal() 和 push() 、 pop() 以及 steal() 可并行
     bool steal(T* val) {
         size_t t = _top.load(butil::memory_order_acquire);
         size_t b = _bottom.load(butil::memory_order_acquire);

@@ -408,6 +408,11 @@ int TaskControl::_destroy_group(TaskGroup* g) {
     return 0;
 }
 
+/**
+ * seed：   _steal_seed
+ * offset： _steal_offset
+ * seed 作为起始值，offset 作为每次增量，用于随机选择一个 TaskGroup
+ */
 bool TaskControl::steal_task(bthread_t* tid, size_t* seed, size_t offset) {
     auto tag = tls_task_group->tag();
     // 1: Acquiring fence is paired with releasing fence in _add_group to
@@ -424,11 +429,14 @@ bool TaskControl::steal_task(bthread_t* tid, size_t* seed, size_t offset) {
     for (size_t i = 0; i < ngroup; ++i, s += offset) {
         TaskGroup* g = groups[s % ngroup];
         // g is possibly NULL because of concurrent _destroy_group
+        // 先执行有woker的线程自己push到队列中的bthread，然后再消费其他线程push给自己的bthread
         if (g) {
+            // 无锁窃取
             if (g->_rq.steal(tid)) {
                 stolen = true;
                 break;
             }
+            // 有锁窃取
             if (g->_remote_rq.pop(tid)) {
                 stolen = true;
                 break;
