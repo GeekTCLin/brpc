@@ -304,6 +304,7 @@ void TaskGroup::task_runner(intptr_t skip_remained) {
         // libraries.
         void* thread_return;
         try {
+            // 执行协程 函数
             thread_return = m->fn(m->arg);
         } catch (ExitException& e) {
             thread_return = e.value();

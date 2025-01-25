@@ -116,8 +116,8 @@ private:
     bvar::Adder<int64_t>& tag_nworkers(bthread_tag_t tag);
     bvar::Adder<int64_t>& tag_nbthreads(bthread_tag_t tag);
 
-    std::vector<butil::atomic<size_t>> _tagged_ngroup;
-    std::vector<TaggedGroups> _tagged_groups;
+    std::vector<butil::atomic<size_t>> _tagged_ngroup;  // 下标为 tag，每个 tag 对应一组taskgroup的数量
+    std::vector<TaggedGroups> _tagged_groups;       // 下标为 tag，每个 tag 对应一组taskgroup
     butil::Mutex _modify_group_mutex;
 
     butil::atomic<bool> _init;  // if not init, bvar will case coredump
@@ -143,7 +143,7 @@ private:
     std::vector<bvar::PerSecond<bvar::PassiveStatus<double>>*> _tagged_worker_usage_second;
     std::vector<bvar::Adder<int64_t>*> _tagged_nbthreads;
 
-    std::vector<TaggedParkingLot> _pl;
+    std::vector<TaggedParkingLot> _pl;          // 下标为 tag，每个 tag对应共享一个 TaggedParkingLot
 };
 
 inline bvar::LatencyRecorder& TaskControl::exposed_pending_time() {

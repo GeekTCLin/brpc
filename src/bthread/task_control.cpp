@@ -200,6 +200,7 @@ int TaskControl::init(int concurrency) {
     _concurrency = concurrency;
 
     // task group group by tags
+    // 感觉 tag 是给 group 再进行了分组，同一个tag 的 task group 属于同一组，添加bthread时，同一tag的 task_group可以将任务添加至 _rq中
     for (int i = 0; i < FLAGS_task_group_ntags; ++i) {
         _tagged_ngroup[i].store(0, std::memory_order_relaxed);
         auto tag_str = std::to_string(i);
@@ -249,6 +250,7 @@ int TaskControl::init(int concurrency) {
     return 0;
 }
 
+// 添加worker 线程
 int TaskControl::add_workers(int num, bthread_tag_t tag) {
     if (num <= 0) {
         return 0;
@@ -279,11 +281,13 @@ int TaskControl::add_workers(int num, bthread_tag_t tag) {
     return _concurrency.load(butil::memory_order_relaxed) - old_concurency;
 }
 
+// 取出 tag 标识下 task_groups 中的 一个 task_group
 TaskGroup* TaskControl::choose_one_group(bthread_tag_t tag) {
     CHECK(tag >= BTHREAD_TAG_DEFAULT && tag < FLAGS_task_group_ntags);
     auto& groups = tag_group(tag);
     const auto ngroup = tag_ngroup(tag).load(butil::memory_order_acquire);
     if (ngroup != 0) {
+        // 随机取出一个 group
         return groups[butil::fast_rand_less_than(ngroup)];
     }
     CHECK(false) << "Impossible: ngroup is 0";
@@ -332,6 +336,7 @@ TaskControl::~TaskControl() {
     stop_and_join();
 }
 
+// 将 TaskGroup 加入 tag 标识的 taskGroups 中
 int TaskControl::_add_group(TaskGroup* g, bthread_tag_t tag) {
     if (__builtin_expect(NULL == g, 0)) {
         return -1;
