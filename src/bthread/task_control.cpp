@@ -218,7 +218,7 @@ int TaskControl::init(int concurrency) {
         return -1;
     }
     
-    // 创建worker线程
+    // 创建worker线程，并计算附加tag组标识
     _workers.resize(_concurrency);   
     for (int i = 0; i < _concurrency; ++i) {
         auto arg = new WorkerThreadArgs(this, i % FLAGS_task_group_ntags);
@@ -237,6 +237,7 @@ int TaskControl::init(int concurrency) {
     // Wait for at least one group is added so that choose_one_group()
     // never returns NULL.
     // TODO: Handle the case that worker quits before add_group
+    // 等待 每个tag组下至少有一个group
     for (int i = 0; i < FLAGS_task_group_ntags;) {
         if (_tagged_ngroup[i].load(std::memory_order_acquire) == 0) {
             usleep(100);  // TODO: Elaborate
@@ -346,6 +347,7 @@ int TaskControl::_add_group(TaskGroup* g, bthread_tag_t tag) {
         return -1;
     }
     g->set_tag(tag);
+    // 根据tag 分配 TaggedParkingLot，然后从4个 ParkingLot 中选一个进行绑定
     g->set_pl(&_pl[tag][butil::fmix64(pthread_numeric_id()) % PARKING_LOT_NUM]);
     size_t ngroup = _tagged_ngroup[tag].load(butil::memory_order_relaxed);
     if (ngroup < (size_t)BTHREAD_MAX_CONCURRENCY) {

@@ -84,14 +84,14 @@ struct ButexWaiter : public butil::LinkNode<ButexWaiter> {
 
     // Erasing node from middle of LinkedList is thread-unsafe, we need
     // to hold its container's lock.
-    butil::atomic<Butex*> container;
+    butil::atomic<Butex*> container;    // 绑定下阻塞在哪个butex
 };
 
 // non_pthread_task allocates this structure on stack and queue it in
 // Butex::waiters.
 struct ButexBthreadWaiter : public ButexWaiter {
     TaskMeta* task_meta;
-    TimerThread::TaskId sleep_id;
+    TimerThread::TaskId sleep_id;       // 用于绑定定时器
     WaiterState waiter_state;
     int expected_value;
     Butex* initial_butex;
@@ -122,7 +122,7 @@ struct BAIDU_CACHELINE_ALIGNMENT Butex {
 
     butil::atomic<int> value;
     ButexWaiterList waiters;
-    FastPthreadMutex waiter_lock;
+    FastPthreadMutex waiter_lock;       // 限制对 waiters 的访问
 };
 
 BAIDU_CASSERT(offsetof(Butex, value) == 0, offsetof_value_must_0);
@@ -141,15 +141,16 @@ static void wakeup_pthread(ButexPthreadWaiter* pw) {
 
 bool erase_from_butex(ButexWaiter*, bool, WaiterState);
 
-// 阻塞一个 pthread 等待节点
+// 阻塞一个 pthread 等待节点，成功返回 0
 int wait_pthread(ButexPthreadWaiter& pw, const timespec* abstime) {
     timespec* ptimeout = NULL;
     timespec timeout;
-    int64_t timeout_us = 0;
+    int64_t timeout_us = 0;     //微秒
     int rc;
 
     while (true) {
         if (abstime != NULL) {
+            // 计算需要等待的微秒数
             timeout_us = butil::timespec_to_microseconds(*abstime) - butil::gettimeofday_us();
             timeout = butil::microseconds_to_timespec(timeout_us);
             ptimeout = &timeout;
@@ -157,6 +158,7 @@ int wait_pthread(ButexPthreadWaiter& pw, const timespec* abstime) {
         if (timeout_us > MIN_SLEEP_US || abstime == NULL) {
             // 挂起线程
             rc = futex_wait_private(&pw.sig, PTHREAD_NOT_SIGNALLED, ptimeout);
+            //如果此时pw.sig的值已经被修改为不等于PTHREAD_NOT_SIGNALLED，说明另一个线程已经唤醒了这个等待者，函数就返回rc
             if (PTHREAD_NOT_SIGNALLED != pw.sig.load(butil::memory_order_acquire)) {
                 // If `sig' is changed, wakeup_pthread() must be called and `pw'
                 // is already removed from the butex.
@@ -164,18 +166,22 @@ int wait_pthread(ButexPthreadWaiter& pw, const timespec* abstime) {
                 return rc;
             }
         } else {
+            // abstime != NULL && timeout_us <= MIN_SLEEP_US
+            // 小于最小等待时间，错误情况，直接返回
             errno = ETIMEDOUT;
             rc = -1;
         }
         // Handle ETIMEDOUT when abstime is valid.
         // If futex_wait_private return EINTR, just continue the loop.
         if (rc != 0 && errno == ETIMEDOUT) {
+            // 如果rc不为0且errno是ETIMEDOUT，说明超时发生
             // wait futex timeout, `pw' is still in the queue, remove it.
             if (!erase_from_butex(&pw, false, WAITER_STATE_TIMEDOUT)) {
                 // Another thread is erasing `pw' as well, wait for the signal.
                 // Acquire fence makes this thread sees changes before wakeup.
                 if (pw.sig.load(butil::memory_order_acquire) == PTHREAD_NOT_SIGNALLED) {
                     // already timedout, abstime and ptimeout are expired.
+                    // 已经超时了，只是移除失败，等待下次操作 erase_from_butex
                     abstime = NULL;
                     ptimeout = NULL;
                     continue;
@@ -192,6 +198,7 @@ extern BAIDU_THREAD_LOCAL TaskGroup* tls_task_group;
 
 // Returns 0 when no need to unschedule or successfully unscheduled,
 // -1 otherwise.
+// 唤醒时间节点，如果sleep_id 不为0，说明为时间节点，从 timer_thread中取消
 inline int unsleep_if_necessary(ButexBthreadWaiter* w,
                                 TimerThread* timer_thread) {
     if (!w->sleep_id) {
@@ -306,6 +313,7 @@ int butex_wake(void* arg, bool nosignal) {
     Butex* b = container_of(static_cast<butil::atomic<int>*>(arg), Butex, value);
     ButexWaiter* front = NULL;
     {
+        // 取出 butex b 中的 首个等待节点，并解绑链表 以及对butex b 的关联
         BAIDU_SCOPED_LOCK(b->waiter_lock);
         if (b->waiters.empty()) {
             return 0;
@@ -367,9 +375,11 @@ int butex_wake_n(void* arg, size_t n, bool nosignal) {
     butil::FlatMap<bthread_tag_t, TaskGroup*> nwakeups;
     nwakeups.init(FLAGS_task_group_ntags);
     // We will exchange with first waiter in the end.
+    // 取出首个 Bthread 等待节点
     ButexBthreadWaiter* next = static_cast<ButexBthreadWaiter*>(
         bthread_waiters.head()->value());
     next->RemoveFromList();
+    // 处理可能时间节点
     unsleep_if_necessary(next, get_global_timer_thread());
     ++nwakeup;
     while (!bthread_waiters.empty()) {
@@ -380,6 +390,7 @@ int butex_wake_n(void* arg, size_t n, bool nosignal) {
         unsleep_if_necessary(w, get_global_timer_thread());
         auto g = get_task_group(w->control, w->tag);
         g->ready_to_run_general(w->tid, true);
+        // 统计需要唤醒的 task_group {tag : task_group}
         nwakeups[g->tag()] = g;
         ++nwakeup;
     }
@@ -551,6 +562,9 @@ struct WaitForButexArgs {
     bool prepend;
 };
 
+/**
+ * @param   arg     WaitForButexArgs
+ */
 static void wait_for_butex(void* arg) {
     auto args = static_cast<WaitForButexArgs*>(arg);
     ButexBthreadWaiter* const bw = args->bw;
@@ -570,6 +584,7 @@ static void wait_for_butex(void* arg) {
     // sequenced by two locks, both threads are guaranteed to see the correct
     // value.
     {
+        // 操作 b -> waiters链表
         BAIDU_SCOPED_LOCK(b->waiter_lock);
         if (b->value.load(butil::memory_order_relaxed) != bw->expected_value) {
             bw->waiter_state = WAITER_STATE_UNMATCHEDVALUE;
@@ -582,6 +597,7 @@ static void wait_for_butex(void* arg) {
             }
             bw->container.store(b, butil::memory_order_relaxed);
             if (bw->abstime != NULL) {
+                // 如果有超时时间，就将任务加入到 TimerThread 中
                 bw->sleep_id = get_global_timer_thread()->schedule(
                     erase_from_butex_and_wakeup, bw, *bw->abstime);
                 if (!bw->sleep_id) {  // TimerThread stopped.
@@ -705,6 +721,7 @@ int butex_wait(void* arg, int expected_value, const timespec* abstime, bool prep
     if (abstime != NULL) {
         // Schedule timer before queueing. If the timer is triggered before
         // queueing, cancel queueing. This is a kind of optimistic locking.
+        // 超时时间小于 MIN_SLEEP_US，返回错误
         if (butil::timespec_to_microseconds(*abstime) <
             (butil::gettimeofday_us() + MIN_SLEEP_US)) {
             // Already timed out.
@@ -722,6 +739,7 @@ int butex_wait(void* arg, int expected_value, const timespec* abstime, bool prep
     bbw.task_meta->current_waiter.store(&bbw, butil::memory_order_release);
     WaitForButexArgs args{ &bbw, prepend};
     g->set_remained(wait_for_butex, &args);
+    // 切换任务
     TaskGroup::sched(&g);
 
     // erase_from_butex_and_wakeup (called by TimerThread) is possibly still

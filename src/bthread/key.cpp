@@ -248,6 +248,7 @@ public:
         }
     }
 
+    // 添加一个 keytable 进入 KeyTableList 链表
     void append(KeyTable* keytable) {
         if (keytable == NULL) {
             return;
@@ -275,6 +276,7 @@ public:
         return temp;
     }
 
+    // 获取前 n 个 keytable 放入 target
     int move_first_n_to_target(KeyTable** target, uint32_t size) {
         if (size > _length || _head == NULL) {
             return 0;
@@ -321,56 +323,67 @@ public:
     }
 
 private:
+    // 一个链表，为什么不用模板？？
     KeyTable* _head;
     KeyTable* _tail;
     uint32_t _length;
 };
 
 KeyTable* borrow_keytable(bthread_keytable_pool_t* pool) {
-    if (pool != NULL && (pool->list || pool->free_keytables)) {
-        KeyTable* p;
-        pthread_rwlock_rdlock(&pool->rwlock);
-        auto list = (butil::ThreadLocal<bthread::KeyTableList>*)pool->list;
+    if(pool == NULL || (!pool->list && !pool->free_keytables)){
+        return NULL;
+    }
+    KeyTable* p;
+    // 上读锁
+    pthread_rwlock_rdlock(&pool->rwlock);
+    // 从list 中取出一个 KeyTable
+    auto list = (butil::ThreadLocal<bthread::KeyTableList>*)pool->list;
+    if (list) {
+        p = list->get()->remove_front();
+        if (p) {
+            pthread_rwlock_unlock(&pool->rwlock);
+            return p;
+        }
+    }
+    pthread_rwlock_unlock(&pool->rwlock);
+
+    // 从free_keytables 中获取
+    if (pool->free_keytables) {
+        // 上写锁
+        pthread_rwlock_wrlock(&pool->rwlock);
+        p = (KeyTable*)pool->free_keytables;
         if (list) {
-            p = list->get()->remove_front();
+            // 将 free_keytables 移动至 list
+            for (uint32_t i = 0; i < FLAGS_borrow_from_globle_size; ++i) {
+                if (p) {
+                    pool->free_keytables = p->next;
+                    list->get()->append(p);
+                    p = (KeyTable*)pool->free_keytables;
+                    --pool->size;
+                } else {
+                    break;
+                }
+            }
+            // 再从 list 取出
+            KeyTable* result = list->get()->remove_front();
+            pthread_rwlock_unlock(&pool->rwlock);
+            return result;
+        } else {
             if (p) {
+                // 返回free_keytables 首个 keytable
+                pool->free_keytables = p->next;
                 pthread_rwlock_unlock(&pool->rwlock);
                 return p;
             }
         }
         pthread_rwlock_unlock(&pool->rwlock);
-        if (pool->free_keytables) {
-            pthread_rwlock_wrlock(&pool->rwlock);
-            p = (KeyTable*)pool->free_keytables;
-            if (list) {
-                for (uint32_t i = 0; i < FLAGS_borrow_from_globle_size; ++i) {
-                    if (p) {
-                        pool->free_keytables = p->next;
-                        list->get()->append(p);
-                        p = (KeyTable*)pool->free_keytables;
-                        --pool->size;
-                    } else {
-                        break;
-                    }
-                }
-                KeyTable* result = list->get()->remove_front();
-                pthread_rwlock_unlock(&pool->rwlock);
-                return result;
-            } else {
-                if (p) {
-                    pool->free_keytables = p->next;
-                    pthread_rwlock_unlock(&pool->rwlock);
-                    return p;
-                }
-            }
-            pthread_rwlock_unlock(&pool->rwlock);
-        }
     }
     return NULL;
 }
 
 // Referenced in task_group.cpp, must be extern.
 // Caller of this function must hold the KeyTable
+// 将 keytable 加回 pool
 void return_keytable(bthread_keytable_pool_t* pool, KeyTable* kt) {
     if (NULL == kt) {
         return;
@@ -380,6 +393,7 @@ void return_keytable(bthread_keytable_pool_t* pool, KeyTable* kt) {
         return;
     }
     pthread_rwlock_rdlock(&pool->rwlock);
+    // 如果pool 已销毁
     if (pool->destroyed) {
         pthread_rwlock_unlock(&pool->rwlock);
         delete kt;
@@ -388,6 +402,7 @@ void return_keytable(bthread_keytable_pool_t* pool, KeyTable* kt) {
     auto list = (butil::ThreadLocal<bthread::KeyTableList>*)pool->list;
     list->get()->append(kt);
     if (list->get()->get_length() > FLAGS_key_table_list_size) {
+        // 达到上限，将一半 keytable 放入 free_keytables
         pthread_rwlock_unlock(&pool->rwlock);
         pthread_rwlock_wrlock(&pool->rwlock);
         if (!pool->destroyed) {
@@ -541,11 +556,13 @@ void bthread_keytable_pool_reserve(bthread_keytable_pool_t* pool,
         LOG(ERROR) << "Fail to getstat of pool=" << pool;
         return;
     }
+    // 扩
     for (size_t i = stat.nfree; i < nfree; ++i) {
         bthread::KeyTable* kt = new (std::nothrow) bthread::KeyTable;
         if (kt == NULL) {
             break;
         }
+        // 构造
         void* data = ctor(ctor_args);
         if (data) {
             kt->set_data(key, data);
@@ -557,6 +574,7 @@ void bthread_keytable_pool_reserve(bthread_keytable_pool_t* pool,
             delete kt;
             break;
         }
+        // 前插法加入 free_keytables
         kt->next = (bthread::KeyTable*)pool->free_keytables;
         pool->free_keytables = kt;
         ++pool->size;

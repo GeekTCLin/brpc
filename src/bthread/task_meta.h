@@ -31,8 +31,8 @@
 namespace bthread {
 
 struct TaskStatistics {
-    int64_t cputime_ns;
-    int64_t nswitch;
+    int64_t cputime_ns;                 // 
+    int64_t nswitch;                    // 被切换次数
 };
 
 class KeyTable;
@@ -87,7 +87,7 @@ struct TaskMeta {
     
     // Statistics
     int64_t cpuwide_start_ns;
-    TaskStatistics stat;
+    TaskStatistics stat;            // 统计模块
 
     // bthread local storage, sync with tls_bls (defined in task_group.cpp)
     // when the bthread is created or destroyed.

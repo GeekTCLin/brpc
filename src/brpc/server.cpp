@@ -820,6 +820,7 @@ int Server::StartInternal(const butil::EndPoint& endpoint,
         _options = ServerOptions();
     }
 
+    // options 参数检测
     if (!_options.h2_settings.IsValid(true/*log_error*/)) {
         LOG(ERROR) << "Invalid h2_settings";
         return -1;

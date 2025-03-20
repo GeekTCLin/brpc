@@ -45,7 +45,14 @@
     asm volatile("");                                                          \
     var_name = v;                                                              \
   }
+/**
+ * 
+协程/异步任务的上下文切换：
+协程挂起时，线程可能被重新调度到其他任务或物理核心。若 TLS 变量的地址被编译器缓存，恢复后可能访问到错误的上下文数据。
 
+编译器的激进优化：
+某些编译器（如 Clang）会对 TLS 变量进行激进的地址缓存优化，但在协程场景中这是不安全的。通过函数调用强制重新加载最新值，避免数据不一致。
+ */
 #if (defined (__aarch64__) && defined (__GNUC__)) || defined(__clang__)
 // GNU compiler under aarch and Clang compiler is incorrectly caching the 
 // address of thread_local variables across a suspend-point. The following

@@ -133,6 +133,7 @@ inline int64_t timespec_to_nanoseconds(const timespec& ts) {
     return ts.tv_sec * 1000000000L + ts.tv_nsec;
 }
 
+// 计算微妙
 inline int64_t timespec_to_microseconds(const timespec& ts) {
     return timespec_to_nanoseconds(ts) / 1000L;
 }

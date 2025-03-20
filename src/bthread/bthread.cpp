@@ -232,6 +232,7 @@ struct TidJoiner {
 
 extern "C" {
 
+// 当新线程的任务更紧急（urgent）时，在当前 TaskGroup 立即执行新的 fn(args)
 int bthread_start_urgent(bthread_t* __restrict tid,
                          const bthread_attr_t* __restrict attr,
                          void * (*fn)(void*),
@@ -240,12 +241,14 @@ int bthread_start_urgent(bthread_t* __restrict tid,
     if (g) {
         // if attribute is null use thread local task group
         if (bthread::can_run_thread_local(attr)) {
+            // 紧急任务还得 attr 不存在 或者 attr.tag 与 当前worker线程的tag一致才行
             return bthread::TaskGroup::start_foreground(&g, tid, attr, fn, arg);
         }
     }
     return bthread::start_from_non_worker(tid, attr, fn, arg);
 }
 
+// fn执行先加入_rq，然后再根据调度执行，非抢占
 int bthread_start_background(bthread_t* __restrict tid,
                              const bthread_attr_t* __restrict attr,
                              void * (*fn)(void*),

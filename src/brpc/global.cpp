@@ -632,6 +632,7 @@ static void GlobalInitializeOrDieImpl() {
 }
 
 void GlobalInitializeOrDie() {
+    // pthread_once 是 POSIX 线程库中的一个函数，用于确保某个函数（在这里是 GlobalInitializeOrDieImpl）在多线程环境中只会被执行一次
     if (pthread_once(&register_extensions_once,
                      GlobalInitializeOrDieImpl) != 0) {
         LOG(FATAL) << "Fail to pthread_once";

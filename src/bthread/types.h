@@ -56,8 +56,8 @@ static const bthread_attrflags_t BTHREAD_INHERIT_SPAN = 128;
 
 // Key of thread-local data, created by bthread_key_create.
 typedef struct {
-    uint32_t index;    // index in KeyTable
-    uint32_t version;  // ABA avoidance
+    uint32_t index;    // index in KeyTable keytable 下标
+    uint32_t version;  // ABA avoidance     版本号，避免ABA问题
 } bthread_key_t;
 
 static const bthread_key_t INVALID_BTHREAD_KEY = { 0, 0 };
@@ -88,7 +88,7 @@ typedef struct {
     pthread_rwlock_t rwlock;
     void* list;
     void* free_keytables;
-    size_t size;
+    size_t size;        // free_keytables 的长度
     int destroyed;
 } bthread_keytable_pool_t;
 

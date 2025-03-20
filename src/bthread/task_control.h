@@ -89,7 +89,7 @@ public:
 private:
     typedef std::array<TaskGroup*, BTHREAD_MAX_CONCURRENCY> TaggedGroups;
     static const int PARKING_LOT_NUM = 4;
-    typedef std::array<ParkingLot, PARKING_LOT_NUM> TaggedParkingLot;
+    typedef std::array<ParkingLot, PARKING_LOT_NUM> TaggedParkingLot;   // 一组默认包含4个ParkingLot
     // Add/Remove a TaskGroup.
     // Returns 0 on success, -1 otherwise.
     int _add_group(TaskGroup*, bthread_tag_t tag);
@@ -144,6 +144,7 @@ private:
     std::vector<bvar::Adder<int64_t>*> _tagged_nbthreads;
 
     std::vector<TaggedParkingLot> _pl;          // 下标为 tag，每个 tag对应共享一个 TaggedParkingLot
+                                                // 而一个 TaggedParkingLot 包含4个 ParkingLot
 };
 
 inline bvar::LatencyRecorder& TaskControl::exposed_pending_time() {

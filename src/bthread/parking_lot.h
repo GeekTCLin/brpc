@@ -62,6 +62,7 @@ public:
 
     // Wakeup suspended wait() and make them unwaitable ever. 
     void stop() {
+        // stop 将最低位设置为1
         _pending_signal.fetch_or(1);
         futex_wake_private(&_pending_signal, 10000);
     }

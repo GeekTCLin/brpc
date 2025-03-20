@@ -307,6 +307,7 @@ struct ServerStatistics {
 };
 
 // Represent server's ownership of services.
+// 表示服务器不拥有服务的所有权。服务的生命周期由外部管理，服务器不会在关闭时自动释放服务
 enum ServiceOwnership {
     SERVER_OWNS_SERVICE,
     SERVER_DOESNT_OWN_SERVICE

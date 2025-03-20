@@ -61,6 +61,7 @@ BAIDU_VOLATILE_THREAD_LOCAL(TaskGroup*, tls_task_group, NULL);
 // Sync with TaskMeta::local_storage when a bthread is created or destroyed.
 // During running, the two fields may be inconsistent, use tls_bls as the
 // groundtruth.
+// __thread 线程局部变量关键字
 __thread LocalStorage tls_bls = BTHREAD_LOCAL_STORAGE_INITIALIZER;
 
 // defined in bthread/key.cpp
@@ -130,7 +131,9 @@ bool TaskGroup::wait_task(bthread_t* tid) {
         if (_last_pl_state.stopped()) {
             return false;
         }
+        // 如果保存了上一次的 ParkingLot 状态，则进行等待
         _pl->wait(_last_pl_state);
+        // 反之获取任务
         if (steal_task(tid)) {
             return true;
         }
@@ -267,8 +270,11 @@ void TaskGroup::task_runner(intptr_t skip_remained) {
 
     if (!skip_remained) {
         while (g->_last_context_remained) {
+            // 用户函数执行前，先执行可能存在的 remained 函数
             RemainedFn fn = g->_last_context_remained;
             g->_last_context_remained = NULL;
+            // fn 执行有可能 导致 _last_context_remained 发生变化，所以这里需要使用 while loop
+            // from deepseek 
             fn(g->_last_context_remained_arg);
             g = BAIDU_GET_VOLATILE_THREAD_LOCAL(tls_task_group);
         }
@@ -370,6 +376,7 @@ void TaskGroup::_release_last_context(void* arg) {
     return_resource(get_slot(m->tid));
 }
 
+// 抢占式执行传入的fn，对当前运行的任务保存至 _rq
 int TaskGroup::start_foreground(TaskGroup** pg,
                                 bthread_t* __restrict th,
                                 const bthread_attr_t* __restrict attr,
@@ -583,6 +590,7 @@ void TaskGroup::sched(TaskGroup** pg) {
 #endif
     if (!popped && !g->steal_task(&next_tid)) {
         // Jump to main task if there's no task to run.
+        // 如果没有任务则切回主协程
         next_tid = g->_main_tid;
     }
     sched_to(pg, next_tid);
@@ -602,6 +610,7 @@ void TaskGroup::sched_to(TaskGroup** pg, TaskMeta* next_meta) {
     const int saved_errno = errno;
     void* saved_unique_user_ptr = tls_unique_user_ptr;
 
+    // 对当前的任务栈（要切出去的）更新占用的CPU时间片
     TaskMeta* const cur_meta = g->_cur_meta;
     const int64_t now = butil::cpuwide_time_ns();
     const int64_t elp_ns = now - g->_last_run_ns;
@@ -610,8 +619,10 @@ void TaskGroup::sched_to(TaskGroup** pg, TaskMeta* next_meta) {
     if (cur_meta->tid != g->main_tid()) {
         g->_cumulated_cputime_ns += elp_ns;
     }
+    // 更新切出次数
     ++cur_meta->stat.nswitch;
     ++ g->_nswitch;
+
     // Switch to the task
     if (__builtin_expect(next_meta != cur_meta, 1)) {
         g->_cur_meta = next_meta;

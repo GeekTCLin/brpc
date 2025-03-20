@@ -245,7 +245,7 @@ friend class TaskControl;
     int64_t _last_run_ns;
     int64_t _cumulated_cputime_ns;
 
-    size_t _nswitch;
+    size_t _nswitch;                    // 任务栈切换次数
     RemainedFn _last_context_remained;
     void* _last_context_remained_arg;
 
