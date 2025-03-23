@@ -781,6 +781,10 @@ static bool OptionsAvailableOverRdma(const ServerOptions* opt) {
 static AdaptiveMaxConcurrency g_default_max_concurrency_of_method(0);
 static bool g_default_ignore_eovercrowded(false);
 
+/*
+* core 
+* 启动服务器
+*/
 int Server::StartInternal(const butil::EndPoint& endpoint,
                           const PortRange& port_range,
                           const ServerOptions *opt) {
@@ -1074,6 +1078,7 @@ int Server::StartInternal(const butil::EndPoint& endpoint,
         return -1;
     }
     _listen_addr = endpoint;
+    // 从 min_port 到 max_port 依次尝试监听
     for (int port = port_range.min_port; port <= port_range.max_port; ++port) {
         _listen_addr.port = port;
         butil::fd_guard sockfd(tcp_listen(_listen_addr));
@@ -1100,6 +1105,7 @@ int Server::StartInternal(const butil::EndPoint& endpoint,
             }
         }
         if (_am == NULL) {
+            // 创建acceptor
             _am = BuildAcceptor();
             if (NULL == _am) {
                 LOG(ERROR) << "Fail to build acceptor";
@@ -1116,6 +1122,8 @@ int Server::StartInternal(const butil::EndPoint& endpoint,
         g_running_server_count.fetch_add(1, butil::memory_order_relaxed);
 
         // Pass ownership of `sockfd' to `_am'
+        // 启动Acceptor
+        // sockfd 隐式转换为了 int
         if (_am->StartAccept(sockfd, _options.idle_timeout_sec,
                              _default_ssl_ctx,
                              _options.force_ssl) != 0) {
@@ -1123,6 +1131,7 @@ int Server::StartInternal(const butil::EndPoint& endpoint,
             return -1;
         }
         sockfd.release();
+        // 成功监听端口 并启动 acceptor，退出循环
         break; // stop trying
     }
     if (_options.internal_port >= 0 && _options.has_builtin_services) {
@@ -1316,6 +1325,10 @@ int Server::Join() {
     return 0;
 }
 
+/**
+ * Core 
+ * 添加 protobuf service
+ */
 int Server::AddServiceInternal(google::protobuf::Service* service,
                                bool is_builtin_service,
                                const ServiceOptions& svc_opt) {
@@ -1330,6 +1343,7 @@ int Server::AddServiceInternal(google::protobuf::Service* service,
         return -1;
     }
 
+    // server 先初始化
     if (InitializeOnce() != 0) {
         LOG(ERROR) << "Fail to initialize Server[" << version() << ']';
         return -1;
@@ -1340,6 +1354,7 @@ int Server::AddServiceInternal(google::protobuf::Service* service,
         return -1;
     }
 
+    // service name 不能重复
     if (_fullname_service_map.seek(sd->full_name()) != NULL) {
         LOG(ERROR) << "service=" << sd->full_name() << " already exists";
         return -1;
@@ -1356,7 +1371,7 @@ int Server::AddServiceInternal(google::protobuf::Service* service,
     // defined `option (idl_support) = true' or not.
     const bool is_idl_support = sd->file()->options().GetExtension(idl_support);
 
-    Tabbed* tabbed = dynamic_cast<Tabbed*>(service);
+    Tabbed* tabbed = dynamic_cast<Tabbed*>(service);    // 如果继承了Tabbed，则 tabbed 为非空，仅用于标识为 tab 附加服务
     for (int i = 0; i < sd->method_count(); ++i) {
         const google::protobuf::MethodDescriptor* md = sd->method(i);
         MethodProperty mp;
@@ -1395,6 +1410,7 @@ int Server::AddServiceInternal(google::protobuf::Service* service,
         }
     }
 
+    // 创建 ServiceProperty 对象 存储至 _fullname_service_map 和 _service_map
     const ServiceProperty ss = {
         is_builtin_service, svc_opt.ownership, service, NULL };
     _fullname_service_map[sd->full_name()] = ss;
@@ -1411,6 +1427,7 @@ int Server::AddServiceInternal(google::protobuf::Service* service,
     restful_mappings.trim_spaces();
     if (!restful_mappings.empty()) {
         // Parse the mappings.
+        // 特殊映射支持
         std::vector<RestfulMapping> mappings;
         if (!ParseRestfulMappings(restful_mappings, &mappings)) {
             LOG(ERROR) << "Fail to parse mappings `" << restful_mappings << '\'';

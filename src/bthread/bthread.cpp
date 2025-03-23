@@ -95,6 +95,7 @@ inline TaskControl* get_or_new_task_control() {
         return c;
     }
     BAIDU_SCOPED_LOCK(g_task_control_mutex);
+    // 获取锁后再次判断，可能其他线程已经创建后释放锁
     c = p->load(butil::memory_order_consume);
     if (c != NULL) {
         return c;

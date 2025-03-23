@@ -76,6 +76,7 @@ private:
 //     }
 //   }
 // Note: don't forget the jquery.
+// 这个估计是给 protobuf 服务添加 tab 页的,如上述列子用给html引入一个 jquery_min.js
 class Tabbed {
 public:
     virtual ~Tabbed() = default;

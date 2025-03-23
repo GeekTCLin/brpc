@@ -542,6 +542,7 @@ int tcp_listen(EndPoint point) {
     if (endpoint2sockaddr(point, &serv_addr, &serv_addr_size) != 0) {
         return -1;
     }
+    // 使用 RAII fd_guard，避免忘记关闭 sockfd（如bind、listen失败时）
     fd_guard sockfd(socket(serv_addr.ss_family, SOCK_STREAM, 0));
     if (sockfd < 0) {
         return -1;

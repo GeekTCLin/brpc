@@ -59,6 +59,7 @@ class RtmpService;
 class RedisService;
 struct SocketSSLContext;
 
+// 启动服务参数对象
 struct ServerOptions {
     ServerOptions();  // Constructed with default options.
 
@@ -327,6 +328,7 @@ struct ServiceOptions {
     // Mappings are in form of: "PATH1 => NAME1, PATH2 => NAME2 ..." where
     // PATHs are valid http paths, NAMEs are method names in the service.
     // Default: empty
+    // 一种映射关系，将服务中的方法映射到指定的路径上，而不是默认的"/SERVICE/METHOD"路径
     std::string restful_mappings;
 
     // Work with restful_mappings, if this flag is false, reject methods accessed
@@ -742,7 +744,7 @@ friend class Controller;
     int _virtual_service_count;
     bool _failed_to_set_max_concurrency_of_method;
     bool _failed_to_set_ignore_eovercrowded;
-    Acceptor* _am;
+    Acceptor* _am;                  // acceptor
     Acceptor* _internal_am;
 
     // Use method->full_name() as key

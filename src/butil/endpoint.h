@@ -84,6 +84,7 @@ const char* my_ip_cstr();
 // For IPv4 endpoint, ip and port are real things.
 // For UDS/IPv6 endpoint, to keep ABI compatibility, ip is ResourceId, and port is a special flag.
 // See str2endpoint implementation for details.
+// ip 端口简易封装，仅支持 IPv4
 struct EndPoint {
     EndPoint() : ip(IP_ANY), port(0) {}
     EndPoint(ip_t ip2, int port2);

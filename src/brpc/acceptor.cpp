@@ -89,11 +89,12 @@ int Acceptor::StartAccept(int listened_fd, int idle_timeout_sec,
     
     // Creation of _acception_id is inside lock so that OnNewConnections
     // (which may run immediately) should see sane fields set below.
+    // 应该是注册 EPOLL_OUT 回调
     SocketOptions options;
     options.fd = listened_fd;
     options.user = this;
     options.bthread_tag = _bthread_tag;
-    options.on_edge_triggered_events = OnNewConnections;
+    options.on_edge_triggered_events = OnNewConnections;    // 回调函数，处理新连接
     if (Socket::Create(options, &_acception_id) != 0) {
         // Close-idle-socket thread will be stopped inside destructor
         LOG(FATAL) << "Fail to create _acception_id";
@@ -298,6 +299,7 @@ void Acceptor::OnNewConnectionsUntilEAGAIN(Socket* acception) {
             LOG(ERROR) << "Fail to create Socket";
             continue;
         }
+        // 创建客户端连接socket，并绑定OnNewMessages回调
         in_fd.release(); // transfer ownership to socket_id
 
         // There's a funny race condition here. After Socket::Create, messages

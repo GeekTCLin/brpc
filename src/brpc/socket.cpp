@@ -799,6 +799,7 @@ int Socket::OnCreated(const SocketOptions& options) {
     }
     // Must be the last one! Internal fields of this Socket may be accessed
     // just after calling ResetFileDescriptor.
+    // ResetFileDescriptor 这里会注册 AddConsumer EPOLLIN 监听，对于Acceptor即注册了OnNewConnections
     if (ResetFileDescriptor(options.fd) != 0) {
         const int saved_errno = errno;
         PLOG(ERROR) << "Fail to ResetFileDescriptor";
@@ -2247,6 +2248,7 @@ int Socket::OnInputEvent(void* user_data, uint32_t events,
     // Passing e[i].events causes complex visibility issues and
     // requires stronger memory fences, since reading the fd returns
     // error as well, we don't pass the events.
+    // 如果 _nevent 从0变为1，说明已有bthread运行 ProcessEvent
     if (s->_nevent.fetch_add(1, butil::memory_order_acq_rel) == 0) {
         // According to the stats, above fetch_add is very effective. In a
         // server processing 1 million requests per second, this counter
@@ -2263,6 +2265,7 @@ int Socket::OnInputEvent(void* user_data, uint32_t events,
         if (FLAGS_usercode_in_coroutine) {
             ProcessEvent(p);
         } else if (bthread_start_urgent(&tid, &attr, ProcessEvent, p) != 0) {
+            // ProcessEvent 的回调同样是异步的
             LOG(FATAL) << "Fail to start ProcessEvent";
             ProcessEvent(p);
         }

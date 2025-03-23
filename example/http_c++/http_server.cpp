@@ -228,8 +228,10 @@ int main(int argc, char* argv[]) {
     GFLAGS_NS::ParseCommandLineFlags(&argc, &argv, true);
 
     // Generally you only need one Server.
+    // 服务器对象
     brpc::Server server;
 
+    // 服务对象
     example::HttpServiceImpl http_svc;
     example::FileServiceImpl file_svc;
     example::QueueServiceImpl queue_svc;
@@ -238,6 +240,7 @@ int main(int argc, char* argv[]) {
     // Add services into server. Notice the second parameter, because the
     // service is put on stack, we don't want server to delete it, otherwise
     // use brpc::SERVER_OWNS_SERVICE.
+    // 添加服务对象
     if (server.AddService(&http_svc,
                           brpc::SERVER_DOESNT_OWN_SERVICE) != 0) {
         LOG(ERROR) << "Fail to add http_svc";
@@ -268,12 +271,14 @@ int main(int argc, char* argv[]) {
     options.mutable_ssl_options()->default_cert.certificate = FLAGS_certificate;
     options.mutable_ssl_options()->default_cert.private_key = FLAGS_private_key;
     options.mutable_ssl_options()->ciphers = FLAGS_ciphers;
+    // 启动服务
     if (server.Start(FLAGS_port, &options) != 0) {
         LOG(ERROR) << "Fail to start HttpServer";
         return -1;
     }
 
     // Wait until Ctrl-C is pressed, then Stop() and Join() the server.
+    // 退出回收资源
     server.RunUntilAskedToQuit();
     return 0;
 }

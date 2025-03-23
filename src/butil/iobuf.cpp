@@ -206,8 +206,8 @@ struct IOBuf::Block {
     butil::atomic<int> nshared;
     uint16_t flags;
     uint16_t abi_check;  // original cap, never be zero.
-    uint32_t size;
-    uint32_t cap;
+    uint32_t size;          // 已使用长度
+    uint32_t cap;           // 容量
     // When flag is 0, portal_next is valid.
     // When flag & IOBUF_BLOCK_FLAGS_USER_DATA is non-0, data_meta is valid.
     union {
@@ -1618,16 +1618,25 @@ void IOPortal::clear() {
 
 const int MAX_APPEND_IOVEC = 64;
 
+/**
+ * 预先申请出多个block空间，block之间链表相连
+ * 使用readv 读取数据从 fd读取数据
+ * 有点类似 libeven2 buffevent的存储方式
+ */
 ssize_t IOPortal::pappend_from_file_descriptor(
     int fd, off_t offset, size_t max_count) {
+    // 使用 iovec 将数据分散写入多个内存块，避免内存拷贝
     iovec vec[MAX_APPEND_IOVEC];
+    // 使用的 block
     int nvec = 0;
+    // 已存储空间
     size_t space = 0;
     Block* prev_p = NULL;
     Block* p = _block;
     // Prepare at most MAX_APPEND_IOVEC blocks or space of blocks >= max_count
     do {
         if (p == NULL) {
+            // 若空间不足则从线程本地存储（TLS）申请新 Block
             p = iobuf::acquire_tls_block();
             if (BAIDU_UNLIKELY(!p)) {
                 errno = ENOMEM;
@@ -1639,6 +1648,7 @@ ssize_t IOPortal::pappend_from_file_descriptor(
                 _block = p;
             }
         }
+        // iov_base 指向block剩余起始
         vec[nvec].iov_base = p->data + p->size;
         vec[nvec].iov_len = std::min(p->left_space(), max_count - space);
         space += vec[nvec].iov_len;
@@ -1664,6 +1674,7 @@ ssize_t IOPortal::pappend_from_file_descriptor(
         return nr;
     }
 
+    // 将读取的 nr 字节按 iovec 分布写入多个 Block
     size_t total_len = nr;
     do {
         const size_t len = std::min(total_len, _block->left_space());

@@ -58,6 +58,7 @@ public:
     }
 
     // Set internal fd to -1 and return the value before set.
+    // 释放 _fd 的析构，赋值为 -1
     int release() {
         const int prev_fd = _fd;
         _fd = -1;

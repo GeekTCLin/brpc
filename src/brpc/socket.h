@@ -846,7 +846,7 @@ private:
     // Initialized by SocketOptions.app_connect.
     std::shared_ptr<AppConnect> _app_connect;
 
-    IOEvent<Socket> _io_event;
+    IOEvent<Socket> _io_event;              // io 事件绑定对象，往 epoll / kqueue 注册io事件
 
     // last chosen index of the protocol as a heuristic value to avoid
     // iterating all protocol handlers each time.

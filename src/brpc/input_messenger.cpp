@@ -357,6 +357,7 @@ void InputMessenger::OnNewMessages(Socket* m) {
         const int64_t base_realtime = butil::gettimeofday_us() - received_us;
 
         // Calculate bytes to be read.
+        // 计算单次读取的最大数据量
         size_t once_read = m->_avg_msg_size * 16;
         if (once_read < MIN_ONCE_READ) {
             once_read = MIN_ONCE_READ;

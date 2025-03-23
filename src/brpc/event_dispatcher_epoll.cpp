@@ -22,6 +22,7 @@
 
 namespace brpc {
 
+// epoll event loop
 EventDispatcher::EventDispatcher()
     : _event_dispatcher_fd(-1)
     , _stop(false)
@@ -34,6 +35,7 @@ EventDispatcher::EventDispatcher()
     }
     CHECK_EQ(0, butil::make_close_on_exec(_event_dispatcher_fd));
 
+    // 管道
     _wakeup_fds[0] = -1;
     _wakeup_fds[1] = -1;
     if (pipe(_wakeup_fds) != 0) {
@@ -81,6 +83,7 @@ int EventDispatcher::Start(const bthread_attr_t* consumer_thread_attr) {
     // when the older comlog (e.g. 3.1.85) calls com_openlog_r(). Since this
     // is also a potential issue for consumer threads, using the same attr
     // should be a reasonable solution.
+    // 创建bthread 用于运行 RunThis
     int rc = bthread_start_background(&_tid, &epoll_thread_attr, RunThis, this);
     if (rc) {
         LOG(FATAL) << "Fail to create epoll thread: " << berror(rc);
@@ -109,6 +112,7 @@ void EventDispatcher::Join() {
     }
 }
 
+// 添加IO事件
 int EventDispatcher::RegisterEvent(IOEventDataId event_data_id,
                                    int fd, bool pollin) {
     if (_event_dispatcher_fd < 0) {
@@ -229,6 +233,10 @@ void EventDispatcher::Run() {
         for (int i = 0; i < n; ++i) {
             if (e[i].events & (EPOLLOUT | EPOLLERR | EPOLLHUP)) {
                 // We don't care about the return value.
+                // 多重封装
+                // 1.EventDispatcher::OnEvent
+                // 2.IOEventData::CallInputEventCallback / IOEventData::CallOutputEventCallback
+                // 3.IOEvent::OnInputEvent / IOEvent::OnOutputEvent
                 CallOutputEventCallback(e[i].data.u64, e[i].events, _thread_attr);
             }
         }

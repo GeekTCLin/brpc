@@ -29,6 +29,7 @@ bthread_once_t::~bthread_once_t() {
 
 namespace bthread {
 
+// 保证 init_routine 只会被调用一次
 int bthread_once_impl(bthread_once_t* once_control, void (*init_routine)()) {
     butil::atomic<int>* butex = once_control->_butex;
     // We need acquire memory order for this load because if the value
@@ -44,12 +45,14 @@ int bthread_once_impl(bthread_once_t* once_control, void (*init_routine)()) {
                                        butil::memory_order_relaxed,
                                        butil::memory_order_relaxed)) {
         // This (b)thread is the first and the Only one here. Do the initialization.
+        // 抢占成功，执行初始化函数
         init_routine();
         // Mark *once_control as having finished the initialization. We need
         // release memory order here because we need to synchronize with other
         // (b)threads that want to use the initialized data.
         butex->store(bthread_once_t::INITIALIZED, butil::memory_order_release);
         // Wake up all other (b)threads.
+        // 唤醒所有等待的线程
         bthread::butex_wake_all(butex);
         return 0;
     }
@@ -59,10 +62,13 @@ int bthread_once_impl(bthread_once_t* once_control, void (*init_routine)()) {
         val = butex->load(butil::memory_order_acquire);
         if (BAIDU_LIKELY(val == bthread_once_t::INITIALIZED)) {
             // The initialization has already been done.
+            // 已经初始化完成，返回
             return 0;
         }
         // Unless your constructor can be very time consuming, it is very unlikely o hit
         // this race. When it does, we just wait the thread until the object has been created.
+        // 忽略 EINTR（信号中断）和 EWOULDBLOCK（虚假唤醒），其他错误直接返回
+        // 反过来理解应该是 EINTR 和 EWOULDBLOCK 会导致唤醒，如果还是没有初始化完成，则会继续等待
         if (bthread::butex_wait(butex, val, NULL) < 0 &&
             errno != EWOULDBLOCK && errno != EINTR/*note*/) {
             return errno;
