@@ -203,13 +203,15 @@ struct UserDataExtension {
 };
 
 struct IOBuf::Block {
-    butil::atomic<int> nshared;
+    butil::atomic<int> nshared;     // 引用计数，初始为1，当减少为1时进行销毁
     uint16_t flags;
     uint16_t abi_check;  // original cap, never be zero.
     uint32_t size;          // 已使用长度
     uint32_t cap;           // 容量
     // When flag is 0, portal_next is valid.
     // When flag & IOBUF_BLOCK_FLAGS_USER_DATA is non-0, data_meta is valid.
+    // 当flag 为0，portal_next有效
+    // 当flag & IOBUF_BLOCK_FLAGS_USER_DATA 非0，data_meta有效
     union {
         Block* portal_next;
         uint64_t data_meta;
@@ -265,6 +267,7 @@ struct IOBuf::Block {
 #endif
     }
 
+    // 增加 nshared 引用计数
     void inc_ref() {
         check_abi();
         nshared.fetch_add(1, butil::memory_order_relaxed);
@@ -272,7 +275,8 @@ struct IOBuf::Block {
             SubmitIOBufSample(this, 1);
         }
     }
-        
+    
+    // 减少 nshared 引用计数
     void dec_ref() {
         check_abi();
         if (sampled()) {
@@ -338,15 +342,20 @@ uint32_t block_size(IOBuf::Block const* b) {
     return b->size;
 }
 
+// core
+// 创建 block
 inline IOBuf::Block* create_block(const size_t block_size) {
     if (block_size > 0xFFFFFFFFULL) {
         LOG(FATAL) << "block_size=" << block_size << " is too large";
         return NULL;
     }
+    // 申请block_size 字节空间
     char* mem = (char*)iobuf::blockmem_allocate(block_size);
     if (mem == NULL) {
         return NULL;
     }
+    // 在 mem位置 placement new Block， 数据位置为 mem + sizeof(Block)
+    // sizoef(Block) = 32
     return new (mem) IOBuf::Block(mem + sizeof(IOBuf::Block),
                                   block_size - sizeof(IOBuf::Block));
 }
@@ -592,12 +601,14 @@ void IOBuf::operator=(const IOBuf& rhs) {
     }
 }
 
+// 引用合并
 template <bool MOVE>
 void IOBuf::_push_or_move_back_ref_to_smallview(const BlockRef& r) {
     BlockRef* const refs = _sv.refs;
     if (NULL == refs[0].block) {
         refs[0] = r;
         if (!MOVE) {
+            // 如果不是移动，则为拷贝，增加引用计数
             r.block->inc_ref();
         }
         return;
@@ -1675,6 +1686,7 @@ ssize_t IOPortal::pappend_from_file_descriptor(
     }
 
     // 将读取的 nr 字节按 iovec 分布写入多个 Block
+    // 其实就是在当前_block 链表增加节点
     size_t total_len = nr;
     do {
         const size_t len = std::min(total_len, _block->left_space());

@@ -59,6 +59,7 @@ inline void reset_block_ref(IOBuf::BlockRef& ref) {
 }
 
 inline IOBuf::IOBuf() {
+    // 默认构造选择sv smallview
     reset_block_ref(_sv.refs[0]);
     reset_block_ref(_sv.refs[1]);
 }
@@ -134,7 +135,9 @@ inline bool IOBuf::_small() const {
     return _bv.magic >= 0;
 }
 
+// 获取ref_block 数量
 inline size_t IOBuf::_ref_num() const {
+    // 如果 _sv.refs[0].block != nullptr，!_sv.refs[0].block = 0，再取非 = 1
     return _small()
         ? (!!_sv.refs[0].block + !!_sv.refs[1].block) : _bv.nref;
 }
@@ -159,6 +162,7 @@ inline IOBuf::BlockRef& IOBuf::_ref_at(size_t i) {
     return _small() ? _sv.refs[i] : _bv.ref_at(i);
 }
 
+// 根据下标取出 BlockRef
 inline const IOBuf::BlockRef& IOBuf::_ref_at(size_t i) const {
     return _small() ? _sv.refs[i] : _bv.ref_at(i);
 }
@@ -182,6 +186,7 @@ inline bool operator!=(const IOBuf::BlockRef& r1, const IOBuf::BlockRef& r2) {
 
 inline void IOBuf::_push_back_ref(const BlockRef& r) {
     if (_small()) {
+        // 当前 smallview
         return _push_or_move_back_ref_to_smallview<false>(r);
     } else {
         return _push_or_move_back_ref_to_bigview<false>(r);

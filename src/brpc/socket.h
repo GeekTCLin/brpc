@@ -958,7 +958,7 @@ private:
     butil::atomic<int>* _epollout_butex;
 
     // Storing data that are not flushed into `fd' yet.
-    butil::atomic<WriteRequest*> _write_head;
+    butil::atomic<WriteRequest*> _write_head;   // 待写入fd的写入数据链表
 
     bool _is_write_shutdown;
 

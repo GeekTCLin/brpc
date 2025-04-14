@@ -72,6 +72,7 @@ public:
 
     // can't directly use `struct iovec' here because we also need to access the
     // reference counter(nshared) in Block*
+    // BlockRef 引用了一个block， 指向了block中的一段区域
     struct BlockRef {
         // NOTICE: first bit of `offset' is shared with BigView::start
         uint32_t offset;
@@ -88,7 +89,7 @@ public:
         int32_t magic;
         uint32_t start;
         BlockRef* refs;
-        uint32_t nref;
+        uint32_t nref;      // block 数量
         uint32_t cap_mask;
         size_t nbytes;
 
@@ -426,6 +427,10 @@ private:
         BigView _bv;
         SmallView _sv;
     };
+
+    // IoBuf 本质上是一个小的队列， 里面存储了BlockRef
+    // sv 表示两个Ref
+    // bv 表示一个BlockRef的数组
 };
 
 std::ostream& operator<<(std::ostream&, const IOBuf& buf);

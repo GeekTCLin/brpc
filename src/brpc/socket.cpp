@@ -1636,11 +1636,13 @@ int Socket::Write(butil::IOBuf* data, const WriteOptions* options_in) {
         return SetError(opt.id_wait, EOVERCROWDED);
     }
 
+    // 从对象池中获取一个 WriteRequest 对象
     WriteRequest* req = butil::get_object<WriteRequest>();
     if (!req) {
         return SetError(opt.id_wait, ENOMEM);
     }
 
+    // move 数据到 request 中
     req->data.swap(*data);
     // Set `req->next' to UNCONNECTED so that the KeepWrite thread will
     // wait until it points to a valid WriteRequest or NULL.
@@ -1689,7 +1691,13 @@ int Socket::Write(SocketMessagePtr<>& msg, const WriteOptions* options_in) {
     return StartWrite(req, opt);
 }
 
+// 将数据写入 socket 发送出去
 int Socket::StartWrite(WriteRequest* req, const WriteOptions& opt) {
+    /**
+     * 使用 _write_head.exchange(req) 原子操作将新请求 req 设为链表头部，并获取之前的头部 prev_head。
+     * 如果 prev_head 非空，说明已有线程在处理写入
+     * 如果 prev_head 为空，当前线程获得写入权限。
+     */
     // Release fence makes sure the thread getting request sees *req
     WriteRequest* const prev_head =
         _write_head.exchange(req, butil::memory_order_release);
@@ -1710,6 +1718,8 @@ int Socket::StartWrite(WriteRequest* req, const WriteOptions& opt) {
     int ret = 0;
 
     // We've got the right to write.
+    // 获得连接的写入权限，将指向改为NULL
+    // 下方所有操作均保证在单线程环境下执行
     req->next = NULL;
 
     // Fast fail when write has been shutdown.
@@ -1755,6 +1765,7 @@ int Socket::StartWrite(WriteRequest* req, const WriteOptions& opt) {
 #else
         {
 #endif
+            // 执行一次写入，默认size_hint 为 1MB
             nw = req->data.cut_into_file_descriptor(fd());
         }
     }
@@ -1772,11 +1783,13 @@ int Socket::StartWrite(WriteRequest* req, const WriteOptions& opt) {
         AddOutputBytes(nw);
     }
     if (IsWriteComplete(req, true, NULL)) {
+        // 判断所有写入完成，直接返回
         ReturnSuccessfulWriteRequest(req);
         return 0;
     }
 
 KEEPWRITE_IN_BACKGROUND:
+    // 写入未完成，启动后台 bthread 继续执行写入操作
     ReAddress(&ptr_for_keep_write);
     req->set_socket(ptr_for_keep_write.release());
     if (bthread_start_background(&th, &BTHREAD_ATTR_NORMAL,
